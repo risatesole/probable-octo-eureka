@@ -4,7 +4,7 @@ export type AddProductToCartResponse = {
   data: {
     item: {
       id: number;
-      product_id: number;
+      productvariantid: number;
       quantity: number;
     };
   };
