@@ -15,10 +15,19 @@ interface ProductListProps {
 }
 
 export default function ProductList({ products }: ProductListProps) {
-  function handleAddToCart(productId: number, quantity: number) {
-    alert(`Product ${productId} added to cart! Quantity: ${quantity}`);
+  async function handleAddToCart(productId: number, quantity: number) {
+    const response = await fetch('/api/v1/cart/', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        productvariantid: productId,
+        quantity: 1,
+      }),
+    });
   }
-
   return (
     <div
       style={{
