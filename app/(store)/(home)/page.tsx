@@ -52,7 +52,7 @@ export default async function Page() {
 
       <ProductList
         products={products.map(product => ({
-          id: product.variants?.[0]?.id, // warning duck code, this is sending the product variant id not the variant id so the component things is using the prduct id when is using in reality is the product variant id TODO: fix the component 
+          id: product.variants?.[0]?.id, // warning duck code, this is sending the product variant id not the variant id so the component things is using the prduct id when is using in reality is the product variant id TODO: fix the component
           name: product.name,
           slug: product.variants?.[0]?.slug,
           type: product.variants?.[0]?.thumbnail,
