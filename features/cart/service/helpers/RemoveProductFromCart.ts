@@ -8,14 +8,14 @@ export async function RemoveProductFromCart(productId: number | string) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      product_id: productId,
-      quantity: 1000000,
+      productvariantid: productId,
+      quantity: 1,
     }),
   });
 
   if (!response.ok) {
     const body = await response.text();
-    alert(`Failed to remove product (${response.status}): ${body}`);
+    console.error(`Failed to remove product (${response.status}): ${body}`);
     throw new Error(`Request failed: ${response.status} - ${body}`);
   }
 

@@ -7,7 +7,6 @@ import { cookies } from 'next/headers';
 import { NavbarWithCart } from '@/components/navbar-with-cart';
 import { Footer } from '@/components/Footer';
 import type { NavbarCartItem } from '@/components/navbar';
-import type { GetCartResponse } from '@/features/cart/types/GetCartResponse';
 import { AlertBanner } from '@/components/AlertBanner';
 import { CookieConsentBanner } from '@/components/CookieConsentBanner';
 
@@ -75,20 +74,25 @@ async function getCartItems(): Promise<NavbarCartItem[]> {
       cache: 'no-store',
     });
 
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.error('[Cart] Failed to fetch cart:', res.status);
+      return [];
+    }
 
-    const json: GetCartResponse = await res.json();
-
-    return json.data.items.map(item => ({
+    const json = await res.json();
+    const items = json.data.items.map((item: any) => ({
       id: item.id,
-      name: item.product.name,
-      productId: item.product.id,
-      price: item.product.selling_price,
+      name: item.name,
+      productId: item.id,
+      price: item.selling_price,
       quantity: item.quantity,
-      image: item.product.images.find((img: { type: string; url: string }) => img.type === 'HERO')
-        ?.url,
+      image: item.thumbnail || undefined,
     }));
-  } catch {
+
+    console.log('[Cart] Loaded items:', items.length);
+    return items;
+  } catch (error) {
+    console.error('[Cart] Error fetching cart items:', error);
     return [];
   }
 }

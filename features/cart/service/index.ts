@@ -3,6 +3,7 @@ import type { GetCartResponse } from '@/features/cart/types/GetCartResponse';
 import { addProductToCart } from './helpers/AddProductToCart';
 import { getCart } from './helpers/GetProductsInCart';
 import { RemoveProductFromCart } from './helpers/RemoveProductFromCart';
+
 export default class CartService {
   async getCart(cookieHeader?: string): Promise<GetCartResponse> {
     return getCart(cookieHeader);
@@ -13,7 +14,7 @@ export default class CartService {
   }
 
   async removeProduct(productId: number | string) {
-    RemoveProductFromCart(productId);
+    return RemoveProductFromCart(productId);
   }
 
   async editProductQuantity(productId: number | string, quantity: number) {
@@ -23,18 +24,17 @@ export default class CartService {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        product_id: productId,
+        productvariantid: productId,
         quantity: quantity,
       }),
     });
 
     if (!response.ok) {
       const body = await response.text();
-      alert(`Something wrong happened while editing product cart quantity`);
+      console.error(`Failed to update product quantity (${response.status}): ${body}`);
       throw new Error(`Request failed: ${response.status} - ${body}`);
     }
 
     return response.json();
-    alert('updatingCartItem');
   }
 }

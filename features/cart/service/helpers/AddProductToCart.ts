@@ -8,13 +8,14 @@ export async function addProductToCart(productId: number, quantity: number = 1) 
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      product_id: productId,
+      productvariantid: productId,
       quantity,
     }),
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+    throw new Error(errorData.message || `Request failed: ${response.status}`);
   }
 
   return response.json() as Promise<AddProductToCartResponse>;
