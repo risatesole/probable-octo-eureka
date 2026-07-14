@@ -7,6 +7,7 @@ interface ApiImage {
 }
 
 interface ApiVariant {
+  id: number;
   name: string;
   description: string;
   variantnumber: number;
@@ -39,14 +40,14 @@ interface ApiResponse {
 // Transform API variant to entity variant
 function transformVariant(apiVariant: ApiVariant): NormalProductVariant {
   return {
-    id: apiVariant.variantnumber,
+    id: apiVariant.id,
     name: apiVariant.name,
     description: apiVariant.description,
     thumbnail: apiVariant.thumbnail || '',
     variantnumber: apiVariant.variantnumber,
     sku: apiVariant.sku,
     slug: apiVariant.slug,
-    images: apiVariant.images, // Use the images array directly from API
+    images: apiVariant.images,
     selling_price: apiVariant.selling_price,
     tax_rate: apiVariant.tax_rate,
     created_at: new Date(),

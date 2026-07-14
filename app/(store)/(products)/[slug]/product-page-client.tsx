@@ -22,7 +22,7 @@ export default function ProductPage({ initialProduct, initialVariant }: ProductP
   const handleAddToCart = async () => {
     setCartAdding(true);
     try {
-      console.log('Adding to cart:', selectedVariant.sku);
+      console.log('Adding variant:', selectedVariant.id);
     } finally {
       setCartAdding(false);
     }
