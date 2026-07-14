@@ -22,7 +22,17 @@ export default function ProductPage({ initialProduct, initialVariant }: ProductP
   const handleAddToCart = async () => {
     setCartAdding(true);
     try {
-      console.log('Adding variant:', selectedVariant.id);
+      const response = await fetch('/api/v1/cart/', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          productvariantid: selectedVariant.id,
+          quantity: 1,
+        }),
+      });
     } finally {
       setCartAdding(false);
     }
