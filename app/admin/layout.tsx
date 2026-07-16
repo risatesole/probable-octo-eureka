@@ -9,9 +9,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   const userService = new UserService();
   const user = await userService.getCurrentUser();
 
-  if (!user || user.role !== 'employee') {
-    notFound();
-  }
 
   return (
     <div className="min-h-screen bg-white dark:bg-neutral-950">

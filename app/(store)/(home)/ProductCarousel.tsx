@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 
-interface CarouselSlide {
+// ── Interfaces ──────────────────────────────────────────────────
+
+export interface CarouselSlide {
   id: string;
   image: string;
   title: string;
@@ -19,146 +21,127 @@ interface CarouselProps {
   interval?: number;
 }
 
+// ── Component ───────────────────────────────────────────────────
+
 export default function Carousel({ slides, autoPlay = true, interval = 5000 }: CarouselProps) {
   const [current, setCurrent] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isPaused, setIsPaused] = useState(false);
 
-  useEffect(() => {
-    setIsLoading(false);
-  }, []);
+  const goToNext = useCallback(() => {
+    setCurrent(prev => (prev + 1) % slides.length);
+  }, [slides.length]);
 
-  useEffect(() => {
-    if (!autoPlay || slides.length === 0) return;
-
-    const timer = setInterval(() => {
-      setCurrent(prev => (prev + 1) % slides.length);
-    }, interval);
-
-    return () => clearInterval(timer);
-  }, [autoPlay, interval, slides.length]);
-
-  if (isLoading || slides.length === 0) {
-    return <div className="text-center text-gray-500 py-20">Loading carousel...</div>;
-  }
+  const goToPrevious = useCallback(() => {
+    setCurrent(prev => (prev - 1 + slides.length) % slides.length);
+  }, [slides.length]);
 
   const goToSlide = (index: number) => {
     setCurrent(index);
   };
 
-  const goToPrevious = () => {
-    setCurrent(prev => (prev - 1 + slides.length) % slides.length);
-  };
+  // Manejo de AutoPlay con pausa en hover para mejor UX
+  useEffect(() => {
+    if (!autoPlay || slides.length === 0 || isPaused) return;
 
-  const goToNext = () => {
-    setCurrent(prev => (prev + 1) % slides.length);
-  };
+    const timer = setInterval(goToNext, interval);
+    return () => clearInterval(timer);
+  }, [autoPlay, interval, slides.length, isPaused, goToNext]);
+
+  // Early return simplificado sin estados de carga redundantes en el cliente
+  if (!slides || slides.length === 0) {
+    return (
+      <div className="flex aspect-[16/4] w-full items-center justify-center bg-[#f2f4f6] border border-[#e2e8f0]">
+        <span className="text-sm font-medium text-[#747781]">No hay imágenes disponibles</span>
+      </div>
+    );
+  }
 
   const slide = slides[current];
 
   return (
-    <div className="w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] bg-white py-4 sm:py-6">
-      <div className="px-4 sm:px-6 lg:px-8">
-        {/* Main carousel container - edge to edge */}
-        <div className="relative overflow-hidden rounded-lg bg-gray-50 border border-gray-200">
-          <div className="aspect-[16/4] flex items-center justify-center bg-white">
+    <div 
+      className="relative w-full bg-[#f7f9fb] py-4 sm:py-6"
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+    >
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        
+        {/* Contenedor Principal (Geometría estricta - sharp edges) */}
+        <div className="relative overflow-hidden rounded-none border border-[#e2e8f0] bg-[#ffffff] shadow-sm">
+          <div className="flex aspect-[16/5] items-center justify-center bg-[#f7f9fb] md:aspect-[21/6]">
             {slide.image ? (
               <Image
                 src={slide.image}
                 alt={slide.title}
                 width={1400}
                 height={525}
-                className="object-cover w-full h-full"
-                priority={current === 0}
+                className="h-full w-full object-cover"
+                priority={current === 0} // LCP optimization para la primera imagen
+                quality={85}
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gray-100">
-                <span className="text-gray-400 text-sm">No image available</span>
+              <div className="flex h-full w-full items-center justify-center bg-[#f2f4f6]">
+                <span className="text-sm text-[#747781]">Imagen no disponible</span>
               </div>
             )}
           </div>
 
-          {/* Slide info overlay - subtle and minimal */}
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent p-4 sm:p-6">
-            <div className="max-w-lg">
-              <h3 className="text-lg sm:text-xl font-semibold text-white mb-1 leading-tight">
+          {/* Overlay de información */}
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#091a2d]/90 via-[#091a2d]/40 to-transparent p-4 sm:p-8">
+            <div className="max-w-xl">
+              <h3 className="mb-2 font-serif text-xl font-bold leading-tight text-white sm:text-2xl md:text-3xl">
                 {slide.title}
               </h3>
               {slide.description && (
-                <p className="text-xs sm:text-sm text-gray-200 mb-3 line-clamp-2">
+                <p className="mb-4 line-clamp-2 text-sm text-[#eff1f3] sm:text-base">
                   {slide.description}
                 </p>
               )}
               <Link href={slide.buttonLink}>
-                <button className="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-medium text-sm py-2 px-5 rounded-md transition-colors duration-200 hover:shadow-md">
-                  {slide.buttonText || 'Shop Now'}
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 5l7 7-7 7"
-                    />
+                <button className="inline-flex items-center gap-2 rounded-none bg-[#002d62] px-6 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-[#115cb9] active:scale-95">
+                  {slide.buttonText || 'Ver Detalles'}
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </button>
               </Link>
             </div>
           </div>
 
-          {/* Previous button - subtle */}
+          {/* Controles de Navegación */}
           <button
             onClick={goToPrevious}
-            className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white p-2 rounded-full shadow-md transition-all duration-200 z-10 hover:shadow-lg"
-            aria-label="Previous slide"
+            className="absolute left-4 top-1/2 -translate-y-1/2 rounded-none bg-white/90 p-2 text-[#002d62] shadow-sm transition-all duration-200 hover:bg-white hover:text-[#115cb9] active:scale-95"
+            aria-label="Diapositiva anterior"
           >
-            <svg
-              className="w-4 h-4 sm:w-5 sm:h-5 text-gray-800"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2.5}
-                d="M15 19l-7-7 7-7"
-              />
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
 
-          {/* Next button - subtle */}
           <button
             onClick={goToNext}
-            className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white p-2 rounded-full shadow-md transition-all duration-200 z-10 hover:shadow-lg"
-            aria-label="Next slide"
+            className="absolute right-4 top-1/2 -translate-y-1/2 rounded-none bg-white/90 p-2 text-[#002d62] shadow-sm transition-all duration-200 hover:bg-white hover:text-[#115cb9] active:scale-95"
+            aria-label="Siguiente diapositiva"
           >
-            <svg
-              className="w-4 h-4 sm:w-5 sm:h-5 text-gray-800"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2.5}
-                d="M9 5l7 7-7 7"
-              />
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
             </svg>
           </button>
         </div>
 
-        {/* Dots indicator - modern minimal style */}
-        <div className="flex justify-center gap-1.5 mt-4">
+        {/* Indicadores (Adaptados a líneas rígidas según Design System) */}
+        <div className="mt-4 flex justify-center gap-2">
           {slides.map((_, index) => (
             <button
               key={index}
               onClick={() => goToSlide(index)}
-              className={`transition-all duration-300 ${
+              className={`h-1.5 transition-all duration-300 rounded-none ${
                 index === current
-                  ? 'bg-gray-800 w-8 h-1.5 rounded-full'
-                  : 'bg-gray-300 hover:bg-gray-400 w-2 h-1.5 rounded-full'
+                  ? 'w-8 bg-[#002d62]'
+                  : 'w-4 bg-[#c4c6d1] hover:bg-[#747781]'
               }`}
-              aria-label={`Go to slide ${index + 1}`}
+              aria-label={`Ir a la diapositiva ${index + 1}`}
               aria-current={index === current}
             />
           ))}
