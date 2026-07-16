@@ -87,7 +87,7 @@ export function ProductCard({
   };
 
   return (
-    <article className="group flex h-full flex-col border border-[#e2e8f0] bg-[#ffffff] p-5 sm:p-6 transition-colors duration-200 hover:border-[#115cb9]">
+    <article className="group flex h-full flex-col border border-[#e2e8f0] bg-[#ffffff] p-0 sm:p-0 transition-colors duration-200 hover:border-[#115cb9]">
       {/* Contenedor de Imagen */}
       <Link href={`/${slug}`} className="mb-5 block" aria-label={`Ver detalles de ${name}`}>
         <div className="relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-none bg-[#f7f9fb] transition-colors duration-200 group-hover:bg-[#f2f4f6]">
