@@ -8,6 +8,7 @@ interface Category {
   label: string;
   description: string;
   priority: number;
+  slug: string;
   images: {
     banner: string;
     cart: string;
@@ -101,7 +102,7 @@ export default async function CategoriesPage() {
 function CategoryCard({ category }: { category: Category & { key: string } }) {
   return (
     <Link
-      href={`/categories/${category.label.toLowerCase().replace(/\s+/g, '-')}`}
+      href={`/categories/${category.slug.toLowerCase().replace(/\s+/g, '-')}`}
       style={{ textDecoration: 'none', color: 'inherit' }}
     >
       <article
