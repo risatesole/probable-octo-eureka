@@ -7,57 +7,59 @@ import Image from 'next/image';
 // ─── Helpers ──────────────────────────────────────────────────
 
 function ProductGlyph({ category }: { category: string }) {
-  const stroke = 'oklch(0.708 0 0)';
   const props = {
-    width: 48,
-    height: 48,
+    className: "h-12 w-12 text-[#747781]", 
     viewBox: '0 0 24 24',
     fill: 'none',
-    stroke,
-    strokeWidth: 1,
+    stroke: 'currentColor',
+    strokeWidth: 1.5,
+    'aria-hidden': true,
   } as const;
 
-  if (category === 'Books')
-    return (
-      <svg {...props}>
-        <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" />
-        <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
-      </svg>
-    );
-
-  if (category === 'Notebooks')
-    return (
-      <svg {...props}>
-        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="8" y1="13" x2="16" y2="13" />
-        <line x1="8" y1="17" x2="16" y2="17" />
-      </svg>
-    );
-
-  if (category === 'Pens')
-    return (
-      <svg {...props}>
-        <line x1="12" y1="19" x2="12" y2="23" />
-        <path d="M6.34 17.66l-1.41-1.42 1.41-1.41" />
-        <path d="M17.66 17.66l1.41-1.42-1.41-1.41" />
-        <path d="M12 2L4.93 9.07a7 7 0 000 9.9L12 22l7.07-3.03a7 7 0 000-9.9L12 2z" />
-      </svg>
-    );
-
-  return (
-    <svg {...props}>
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-  );
+  switch (category) {
+    case 'Libros':
+    case 'Books':
+      return (
+        <svg {...props}>
+          <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" />
+          <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
+        </svg>
+      );
+    case 'Cuadernos':
+    case 'Notebooks':
+      return (
+        <svg {...props}>
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="8" y1="13" x2="16" y2="13" />
+          <line x1="8" y1="17" x2="16" y2="17" />
+        </svg>
+      );
+    case 'Bolígrafos':
+    case 'Pens':
+      return (
+        <svg {...props}>
+          <line x1="12" y1="19" x2="12" y2="23" />
+          <path d="M6.34 17.66l-1.41-1.42 1.41-1.41" />
+          <path d="M17.66 17.66l1.41-1.42-1.41-1.41" />
+          <path d="M12 2L4.93 9.07a7 7 0 000 9.9L12 22l7.07-3.03a7 7 0 000-9.9L12 2z" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...props}>
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+        </svg>
+      );
+  }
 }
 
 const formatPrice = (n: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+  new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP' }).format(n);
 
 // ─── Component ────────────────────────────────────────────────
 
-export type ProductCardProps = {
+export interface ProductCardProps {
   id: number;
   name: string;
   selling_price: number;
@@ -65,7 +67,7 @@ export type ProductCardProps = {
   image?: string;
   slug: string;
   onAdd: (productId: number, quantity: number) => void;
-};
+}
 
 export function ProductCard({
   id,
@@ -76,7 +78,6 @@ export function ProductCard({
   slug,
   onAdd,
 }: ProductCardProps) {
-  const [hovered, setHovered] = useState(false);
   const [added, setAdded] = useState(false);
 
   const handleAdd = () => {
@@ -85,41 +86,19 @@ export function ProductCard({
     setTimeout(() => setAdded(false), 900);
   };
 
-  const heroImage = image;
-
   return (
-    <article
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        borderBottom: '1px solid oklch(0.922 0 0)',
-        paddingBottom: '2rem',
-      }}
-    >
-      <Link href={`/${slug}`}>
-        <div
-          style={{
-            aspectRatio: '4/3',
-            background: hovered ? 'oklch(0.97 0 0)' : 'oklch(0.985 0 0)',
-            borderRadius: 4,
-            marginBottom: '1.25rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            overflow: 'hidden',
-            position: 'relative',
-          }}
-        >
-          {heroImage ? (
+    <article className="group flex h-full flex-col border border-[#e2e8f0] bg-[#ffffff] p-5 sm:p-6 transition-colors duration-200 hover:border-[#115cb9]">
+      {/* Contenedor de Imagen */}
+      <Link href={`/${slug}`} className="mb-5 block" aria-label={`Ver detalles de ${name}`}>
+        <div className="relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-none bg-[#f7f9fb] transition-colors duration-200 group-hover:bg-[#f2f4f6]">
+          {image ? (
             <Image
-              src={heroImage}
+              src={image}
               alt={name}
               fill
               sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-              loading="eager"
-              style={{ objectFit: 'cover' }}
+              className="object-cover transition-transform duration-300 group-hover:scale-105"
+              loading="lazy" 
             />
           ) : (
             <ProductGlyph category={categoryName} />
@@ -127,40 +106,39 @@ export function ProductCard({
         </div>
       </Link>
 
-      <p
-        style={{
-          fontSize: '0.68rem',
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          color: 'oklch(0.708 0 0)',
-          marginBottom: '0.4rem',
-        }}
-      >
-        {categoryName}
-      </p>
+      {/* Contenedor de Metadatos */}
+      <div className="flex flex-1 flex-col">
+        <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-[#747781]">
+          {categoryName}
+        </p>
 
-      <Link href={`/${slug}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-        <h3
-          style={{
-            fontFamily: "'Georgia', serif",
-            fontSize: '1rem',
-            fontWeight: 400,
-            marginBottom: '0.75rem',
-          }}
+        <Link href={`/${slug}`} className="block outline-none">
+          <h3 className="font-serif text-base font-semibold leading-tight text-[#191c1e] transition-colors group-hover:text-[#115cb9] line-clamp-2">
+            {name}
+          </h3>
+        </Link>
+      </div>
+
+      {/* Separador Físico */}
+      <hr className="my-4 border-[#e2e8f0]" aria-hidden="true" />
+
+      {/* Área de Transacción */}
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-serif text-base font-bold tracking-tight text-[#191c1e] sm:text-lg">
+          {formatPrice(selling_price)}
+        </span>
+        <button
+          onClick={handleAdd}
+          disabled={added}
+          aria-live="polite"
+          className={`whitespace-nowrap rounded-none px-4 py-2 text-xs font-semibold sm:text-sm transition-all duration-200 active:scale-95 ${
+            added
+              ? 'border border-[#e0e3e5] bg-[#e0e3e5] text-[#43474f]'
+              : 'border border-transparent bg-[#002d62] text-white hover:bg-[#115cb9]'
+          }`}
         >
-          {name}
-        </h3>
-      </Link>
-
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
-        <span style={{ fontFamily: 'monospace' }}>{formatPrice(selling_price)}</span>
-        <button onClick={handleAdd}>{added ? 'Added ✓' : 'Add to cart'}</button>
+          {added ? '¡Añadido! ✓' : 'Añadir al carrito'}
+        </button>
       </div>
     </article>
   );
