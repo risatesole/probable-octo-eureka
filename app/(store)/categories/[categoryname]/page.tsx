@@ -11,7 +11,7 @@ const PAGE_SIZE = 30;
 interface MappedProduct {
   id: string | number;
   name: string;
-  slug?: string;
+  slug: string;
   category: string;
   selling_price: number;
   thumbnail?: string;

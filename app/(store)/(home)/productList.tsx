@@ -1,12 +1,13 @@
+// components/ProductList.tsx
 'use client';
 
 import { useCallback } from 'react';
 import { ProductCard } from '@/components/ProductCard';
 
-// Abstracción de interfaz para mantener el código DRY y escalable.
-// Se recomienda mover MappedProduct a un archivo de tipos global (ej. '@/types').
 export interface MappedProduct {
-  id: number;
+  // Ajuste a string | number: PostgreSQL en Django suele usar UUIDv4 (string) 
+  // para arquitecturas escalables, o BigAutoField (number).
+  id: string | number; 
   name: string;
   thumbnail: string;
   slug: string;
@@ -19,51 +20,58 @@ interface ProductListProps {
 }
 
 export default function ProductList({ products }: ProductListProps) {
-  // useCallback asegura la estabilidad de la referencia, previniendo que
-  // los componentes hijos (ProductCard) se re-rendericen en cada ciclo de vida.
-  const handleAddToCart = useCallback(async (productId: number, quantity: number) => {
+  // useCallback estabiliza la referencia de la función para evitar re-renders 
+  // innecesarios en los componentes hijos (ProductCard)
+  const handleAddToCart = useCallback(async (productId: string | number, quantity: number) => {
     try {
+      // Optimizacion: Si Next.js maneja la sesión vía cookies HttpOnly en el mismo dominio, 
+      // credentials: 'include' no es estrictamente necesario bajo rutas relativas.
       const response = await fetch('/api/v1/cart/', {
         method: 'POST',
-        credentials: 'include',
-        headers: {
+        headers: { 
           'Content-Type': 'application/json',
+          'Accept': 'application/json' 
         },
         body: JSON.stringify({
           productvariantid: productId,
-          quantity: quantity, // Corregido: previamente estaba hardcodeado a 1
+          quantity,
         }),
       });
 
       if (!response.ok) {
-        throw new Error(`Fallo en la petición: ${response.statusText}`);
+        // Extracción del payload de DRF para trazabilidad exacta en logs del cliente
+        const errorDetail = await response.json().catch(() => ({}));
+        throw new Error(`HTTP ${response.status} | DRF: ${JSON.stringify(errorDetail)}`);
       }
-
-      // TODO: Invalidar caché del carrito (Server Action revalidateTag) o actualizar Context/Zustand
+      
+      // TODO: Integrar mutación exitosa con un estado global (Zustand/Context) 
+      // o invalidación de caché (SWR/React Query)
     } catch (error) {
-      console.error('Error durante la adición al carrito:', error);
-      // TODO: Implementar dispatch de Toast/Notificación para feedback visual
+      console.error('[Cart Mutation Error] Fallo en la comunicación con el endpoint:', error);
+      // TODO: Conectar con sistema de Toasts (ej. react-hot-toast) para UX
     }
   }, []);
 
-  if (!products || products.length === 0) {
-    return null; // Early return para evitar renderizar el contenedor vacío
-  }
+  if (!products?.length) return null;
 
   return (
-    <div className="flex-1 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-      {products.map(product => (
-        <ProductCard
-          key={product.id}
-          id={product.id}
-          slug={product.slug}
-          name={product.name}
-          selling_price={product.selling_price}
-          categoryName={product.category}
-          image={product.thumbnail}
-          onAdd={handleAddToCart}
-        />
-      ))}
-    </div>
+    // Refactorización de Tailwind: Se consolida el layout system usando `mx-auto` y `px-*`
+    // para evitar el uso redundante e imperativo de ml-*, mr-*, reduciendo la especificidad CSS.
+    <section className="mx-auto max-w-7xl px-4 py-8 md:px-16 md:py-12">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        {products.map((product) => (
+          <ProductCard
+            key={product.id}
+            id={product.id}
+            slug={product.slug}
+            name={product.name}
+            selling_price={product.selling_price}
+            categoryName={product.category}
+            image={product.thumbnail}
+            onAdd={handleAddToCart}
+          />
+        ))}
+      </div>
+    </section>
   );
 }

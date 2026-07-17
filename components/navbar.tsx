@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, memo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
@@ -45,9 +45,8 @@ type DrawerType = 'cart' | 'account' | null;
 
 // ── Constants & Routing ────────────────────────────────────────
 
-// Corrección de Rutas (Capa de Enrutamiento vs Capa de Presentación)
 const NAV_LINKS = [
-  { href: '/categories', label: 'Categorías' },     // Restaurado al endpoint original del App Router
+  { href: '/categories', label: 'Categorías' },
   { href: '/catalog', label: 'Catálogo' },
   { href: '/bundles', label: 'Combos y Ofertas' },
   { href: '/contact', label: 'Contacto' },
@@ -56,7 +55,7 @@ const NAV_LINKS = [
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP' }).format(amount);
 
-// ── Shared Tailwind Classes (Design System - Strict Shape) ──────
+// ── Shared Tailwind Classes ────────────────────────────────────
 
 const interactiveClasses = {
   iconBtn: "relative p-2 text-slate-600 transition-colors duration-200 ease-in-out hover:bg-[#f2f4f6] hover:text-[#115cb9] active:scale-95 rounded-none",
@@ -67,9 +66,9 @@ const interactiveClasses = {
   drawerLinkBase: "flex items-center gap-3 border-l-2 px-3 py-2.5 text-sm font-medium transition-all duration-200 ease-in-out hover:bg-[#f2f4f6] hover:text-[#115cb9] rounded-none",
 };
 
-// ── Components ─────────────────────────────────────────────────
+// ── Memoized Static Components ─────────────────────────────────
 
-const BrandLogo = () => (
+const BrandLogo = memo(() => (
   <Link 
     href="/" 
     className="mr-6 flex flex-shrink-0 items-center gap-2 transition-opacity duration-300 ease-in-out hover:opacity-80 active:scale-[0.98]"
@@ -82,7 +81,10 @@ const BrandLogo = () => (
       <span className="text-[10px] font-bold uppercase tracking-wider text-[#43474f]">BuyFast Ecónomato</span>
     </div>
   </Link>
-);
+));
+BrandLogo.displayName = 'BrandLogo';
+
+// ── Main Component ─────────────────────────────────────────────
 
 export function Navbar({
   user,
@@ -123,23 +125,39 @@ export function Navbar({
     setSearchOpen(false);
   }, []);
 
-  const handleSearchSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSearchSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const query = searchQuery.trim();
     if (!query) return;
     
     closeOverlays();
     router.push(`/search?q=${encodeURIComponent(query)}`);
-  };
+  }, [searchQuery, closeOverlays, router]);
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     try {
       await fetch('/api/v1/signout/', { method: 'POST', credentials: 'include' });
     } finally {
       closeOverlays();
       router.push('/signin');
     }
-  };
+  }, [closeOverlays, router]);
+
+  // Estabilización de handlers para evitar re-renders en listas
+  const handleQuantityChange = useCallback((id: string | number, value: string) => {
+    const val = parseInt(value, 10);
+    if (val > 0) onUpdateCartItemQuantity?.(id, val);
+  }, [onUpdateCartItemQuantity]);
+
+  const handleNavigateToCart = useCallback(() => {
+    closeOverlays();
+    router.push('/cart');
+  }, [closeOverlays, router]);
+
+  const handleNavigateToCheckout = useCallback(() => {
+    onCheckout?.();
+    router.push('/checkout');
+  }, [onCheckout, router]);
 
   return (
     <>
@@ -160,26 +178,49 @@ export function Navbar({
         {hasItems ? (
           <>
             <div className="flex-1 overflow-y-auto px-6 py-2">
-              {cartItems.map(item => (
-                <article key={item.id} className="group flex gap-4 border-b border-[#e2e8f0] py-4 transition-colors hover:bg-[#f2f4f6] last:border-0">
-                  <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-none border border-[#e2e8f0] bg-[#f7f9fb]">
-                    {item.image ? <Image src={item.image} alt={item.name} fill className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="80px" /> : <div className="flex h-full w-full items-center justify-center"><ShoppingCart className="h-6 w-6 text-[#747781]" /></div>}
-                  </div>
-                  <div className="flex flex-1 flex-col justify-between">
-                    <div>
-                      <h3 className="line-clamp-2 text-sm font-medium leading-tight transition-colors group-hover:text-[#115cb9]">{item.name}</h3>
-                      {item.variant && <p className="mt-1 text-xs text-[#747781]">{item.variant}</p>}
+              {cartItems.map((item, index) => {
+                // Resolución del error de React 'Encountered two children with the same key'
+                // Se genera una clave compuesta estricta para mitigar payloads duplicados de DRF.
+                const uniqueKey = `${item.id}-${item.variant ?? 'default'}-${index}`;
+                
+                return (
+                  <article key={uniqueKey} className="group flex gap-4 border-b border-[#e2e8f0] py-4 transition-colors hover:bg-[#f2f4f6] last:border-0">
+                    <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-none border border-[#e2e8f0] bg-[#f7f9fb]">
+                      {item.image ? (
+                        <Image src={item.image} alt={item.name} fill className="object-cover transition-transform duration-300 group-hover:scale-105" sizes="80px" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center"><ShoppingCart className="h-6 w-6 text-[#747781]" /></div>
+                      )}
                     </div>
-                    <div className="mt-2 flex items-center justify-between">
-                      <span className="text-sm font-semibold text-[#191c1e]">{formatCurrency(item.price)}</span>
-                      <div className="flex items-center gap-2">
-                        <input type="number" min={1} value={item.quantity} onChange={e => { const val = parseInt(e.target.value, 10); if (val > 0) onUpdateCartItemQuantity?.(item.id, val); }} className="w-12 rounded-none border border-[#e2e8f0] bg-transparent px-2 py-1 text-center text-sm outline-none transition-all duration-200 focus:border-b-2 focus:border-[#115cb9]" aria-label={`Cantidad de ${item.name}`} />
-                        <button onClick={() => onRemoveCartItem?.(item.id)} className="text-xs font-medium text-[#747781] transition-all duration-200 hover:text-[#ba1a1a] hover:underline active:scale-95" aria-label={`Eliminar ${item.name} del carrito`}>Eliminar</button>
+                    <div className="flex flex-1 flex-col justify-between">
+                      <div>
+                        <h3 className="line-clamp-2 text-sm font-medium leading-tight transition-colors group-hover:text-[#115cb9]">{item.name}</h3>
+                        {item.variant && <p className="mt-1 text-xs text-[#747781]">{item.variant}</p>}
+                      </div>
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className="text-sm font-semibold text-[#191c1e]">{formatCurrency(item.price)}</span>
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="number" 
+                            min={1} 
+                            value={item.quantity} 
+                            onChange={(e) => handleQuantityChange(item.id, e.target.value)} 
+                            className="w-12 rounded-none border border-[#e2e8f0] bg-transparent px-2 py-1 text-center text-sm outline-none transition-all duration-200 focus:border-b-2 focus:border-[#115cb9]" 
+                            aria-label={`Cantidad de ${item.name}`} 
+                          />
+                          <button 
+                            onClick={() => onRemoveCartItem?.(item.id)} 
+                            className="text-xs font-medium text-[#747781] transition-all duration-200 hover:text-[#ba1a1a] hover:underline active:scale-95" 
+                            aria-label={`Eliminar ${item.name} del carrito`}
+                          >
+                            Eliminar
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </article>
-              ))}
+                  </article>
+                );
+              })}
             </div>
             <footer className="border-t border-[#e2e8f0] bg-[#f7f9fb] px-6 py-5">
               <div className="mb-4 flex items-end justify-between">
@@ -190,16 +231,23 @@ export function Navbar({
                 <span className="text-lg font-bold text-[#191c1e]">{formatCurrency(totalPrice)}</span>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => { closeOverlays(); router.push('/cart'); }} className={interactiveClasses.secondaryBtn}>Ver carrito</button>
-                <button onClick={() => { onCheckout?.(); router.push('/checkout'); }} className={interactiveClasses.primaryBtn}>Finalizar compra</button>
+                <button onClick={handleNavigateToCart} className={interactiveClasses.secondaryBtn}>Ver carrito</button>
+                <button onClick={handleNavigateToCheckout} className={interactiveClasses.primaryBtn}>Finalizar compra</button>
               </div>
             </footer>
           </>
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-            <div className="rounded-none border border-[#e2e8f0] bg-[#f2f4f6] p-4 transition-transform duration-300 hover:scale-110"><ShoppingCart className="h-8 w-8 text-[#747781]" /></div>
+            <div className="rounded-none border border-[#e2e8f0] bg-[#f2f4f6] p-4 transition-transform duration-300 hover:scale-110">
+              <ShoppingCart className="h-8 w-8 text-[#747781]" />
+            </div>
             <p className="text-sm font-medium text-[#43474f]">Tu carrito está vacío</p>
-            <button onClick={() => { closeOverlays(); router.push('/products'); }} className={interactiveClasses.primaryBtn + " mt-2 w-full"}>Continuar comprando</button>
+            <button 
+              onClick={handleNavigateToCart} 
+              className={`${interactiveClasses.primaryBtn} mt-2 w-full`}
+            >
+              Continuar comprando
+            </button>
           </div>
         )}
       </aside>

@@ -1,5 +1,8 @@
+import { notFound } from 'next/navigation';
 import ProductPage from './product-page-client';
 import type { Product, NormalProductVariant } from '@/entities/product';
+
+// ─── Interfaces (Data Transfer Objects) ─────────────────────────
 
 interface ApiImage {
   type: string;
@@ -32,24 +35,18 @@ interface ApiProduct {
 
 interface ApiResponse {
   data: ApiProduct[];
-  meta: {
+  meta?: {
     timestamp: string;
   };
 }
 
-// Transform API variant to entity variant
+// ─── Capa de Transformación (Mappers) ───────────────────────────
+
 function transformVariant(apiVariant: ApiVariant): NormalProductVariant {
   return {
-    id: apiVariant.id,
-    name: apiVariant.name,
-    description: apiVariant.description,
+    ...apiVariant,
     thumbnail: apiVariant.thumbnail || '',
-    variantnumber: apiVariant.variantnumber,
-    sku: apiVariant.sku,
-    slug: apiVariant.slug,
-    images: apiVariant.images,
-    selling_price: apiVariant.selling_price,
-    tax_rate: apiVariant.tax_rate,
+    // Idealmente, estas fechas deberían venir del serializador en DRF.
     created_at: new Date(),
     updated_at: new Date(),
   };
@@ -59,7 +56,8 @@ function transformProduct(apiProduct: ApiProduct): Product {
   return {
     id: apiProduct.id,
     name: apiProduct.name,
-    category: (apiProduct.category.toLowerCase() as any) || 'other',
+    // Eliminado el casting inseguro `as any`
+    category: apiProduct.category?.toLowerCase() || 'other',
     thumbnail: apiProduct.thumbnail,
     slug: apiProduct.slug,
     tags: [],
@@ -68,28 +66,56 @@ function transformProduct(apiProduct: ApiProduct): Product {
   };
 }
 
+// ─── Capa de Servicio (Data Fetching) ───────────────────────────
+
+async function fetchProductByVariantSlug(slug: string): Promise<ApiProduct | null> {
+  // Implementación de ISR para optimizar TTFB y reducir carga en DRF
+  const response = await fetch(
+    `${process.env.BACKEND_URL}/api/v1/products/?variantslug=${slug}`,
+    { next: { revalidate: 3600, tags: ['product-detail', slug] } }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Error en la respuesta de la API: ${response.statusText}`);
+  }
+
+  const json = (await response.json()) as ApiResponse;
+  // Validación de array segura
+  return json.data?.[0] || null; 
+}
+
+// ─── Server Component ───────────────────────────────────────────
+
 export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
 
   try {
-    const response = await fetch(
-      `${process.env.BACKEND_URL}/api/v1/products/?variantslug=${slug}`
-    ).then(res => res.json() as Promise<ApiResponse>);
+    const apiProduct = await fetchProductByVariantSlug(slug);
 
-    const apiProduct = response.data[0];
     if (!apiProduct) {
-      return <div style={{ padding: '2rem' }}>Product not found</div>;
+      // Delega el estado 404 al boundary nativo de Next.js en lugar de retornar HTML parcial
+      notFound();
     }
 
     const product = transformProduct(apiProduct);
     const variant = product.variants.find(v => v.slug === slug);
 
     if (!variant) {
-      return <div style={{ padding: '2rem' }}>Variant not found</div>;
+      notFound();
     }
 
     return <ProductPage initialProduct={product} initialVariant={variant} />;
+    
   } catch (error) {
-    return <div style={{ padding: '2rem' }}>Failed to load product</div>;
+    console.error(`[Product Detail Error]: Fallo al cargar el slug ${slug}`, error);
+    
+    // Fallback UI tipado con el Design System (sin estilos en línea)
+    return (
+      <div className="flex min-h-[50vh] w-full items-center justify-center bg-[#f7f9fb] px-4">
+        <p className="rounded-none border border-[#ffdad6] bg-[#ffffff] p-6 text-sm font-medium text-[#ba1a1a] shadow-sm">
+          No se pudo cargar la información del producto. Por favor, intente nuevamente más tarde.
+        </p>
+      </div>
+    );
   }
 }

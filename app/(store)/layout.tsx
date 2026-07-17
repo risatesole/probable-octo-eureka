@@ -1,3 +1,5 @@
+// app/(store)/layout.tsx
+
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import '../globals.css';
@@ -7,7 +9,7 @@ import { cookies } from 'next/headers';
 import { NavbarWithCart } from '@/components/navbar-with-cart';
 import { Footer } from '@/components/Footer';
 import type { NavbarCartItem } from '@/components/navbar';
-import { AlertBanner } from '@/components/AlertBanner';
+// import { AlertBanner } from '@/components/AlertBanner';
 import { CookieConsentBanner } from '@/components/CookieConsentBanner';
 
 const geistSans = Geist({
@@ -25,80 +27,92 @@ export const metadata: Metadata = {
   description: 'The easy way to buy in the UASD',
 };
 
-type MeResponse = {
+// 1. Interfaces estrictas para tipado de respuestas
+interface UserDetails {
+  id: number;
+  firstname: string;
+  lastname: string;
+  email: string;
+  role: string;
+  profilepicture: string | null;
+  is_authenticated: boolean;
+}
+
+interface MeResponse {
   status: string;
   message?: string;
   data: {
-    user: {
-      id: number;
-      firstname: string;
-      lastname: string;
-      email: string;
-      role: string;
-      profilepicture: string | null;
-      is_authenticated: boolean;
-    } | null;
+    user: UserDetails | null;
   };
-};
-
-async function getUserDetails(): Promise<MeResponse | null> {
-  try {
-    const backendUrl = process.env.BACKEND_URL;
-    if (!backendUrl) return null;
-
-    const cookieStore = await cookies();
-    const cookieHeader = cookieStore.toString();
-
-    const res = await fetch(`${backendUrl}/api/v1/me`, {
-      headers: { Cookie: cookieHeader },
-      cache: 'no-store',
-    });
-
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
 }
 
-async function getCartItems(): Promise<NavbarCartItem[]> {
+interface CartItemRaw {
+  id: number | string;
+  name: string;
+  selling_price: number;
+  quantity: number;
+  thumbnail?: string | null;
+}
+
+interface CartResponse {
+  data: {
+    items: CartItemRaw[];
+  };
+}
+
+// 2. Abstracción del cliente fetch para cumplir con el principio DRY
+async function fetchBackend<T>(endpoint: string): Promise<T | null> {
+  const backendUrl = process.env.BACKEND_URL;
+  if (!backendUrl) {
+    console.warn('[Fetch] BACKEND_URL no está definido en el entorno.');
+    return null;
+  }
+
   try {
-    const backendUrl = process.env.BACKEND_URL;
-    if (!backendUrl) return [];
-
     const cookieStore = await cookies();
-    const cookieHeader = cookieStore.toString();
-
-    const res = await fetch(`${backendUrl}/api/v1/cart/`, {
-      headers: { Cookie: cookieHeader },
+    const res = await fetch(`${backendUrl}${endpoint}`, {
+      headers: { Cookie: cookieStore.toString() },
       cache: 'no-store',
     });
 
     if (!res.ok) {
-      console.error('[Cart] Failed to fetch cart:', res.status);
-      return [];
+      if (res.status !== 401 && res.status !== 403) {
+        console.error(`[Fetch] Fallo en ${endpoint}: HTTP ${res.status}`);
+      }
+      return null;
     }
 
-    const json = await res.json();
-    const items = json.data.items.map((item: any) => ({
-      id: item.id,
-      name: item.name,
-      productId: item.id,
-      price: item.selling_price,
-      quantity: item.quantity,
-      image: item.thumbnail || undefined,
-    }));
-
-    console.log('[Cart] Loaded items:', items.length);
-    return items;
+    return (await res.json()) as T;
   } catch (error) {
-    console.error('[Cart] Error fetching cart items:', error);
-    return [];
+    console.error(`[Fetch] Error de red en ${endpoint}:`, error);
+    return null;
   }
 }
 
+async function getUserDetails(): Promise<MeResponse | null> {
+  return fetchBackend<MeResponse>('/api/v1/me');
+}
+
+async function getCartItems(): Promise<NavbarCartItem[]> {
+  const json = await fetchBackend<CartResponse>('/api/v1/cart/');
+  
+  if (!json?.data?.items) return [];
+
+  // 3. Mapeo fuertemente tipado (eliminación del tipo "any")
+  return json.data.items.map((item) => ({
+    id: String(item.id), // Aseguramos que el ID del componente sea string
+    name: item.name,
+    productId: Number(item.id),
+    price: item.selling_price,
+    quantity: item.quantity,
+    image: item.thumbnail || undefined,
+  }));
+}
+
 export default async function HomeLayout({ children }: { children: React.ReactNode }) {
+  // 4. Resolución paralela de promesas para optimizar el Server Component
   const [userData, cartItems] = await Promise.all([getUserDetails(), getCartItems()]);
+  
   const rawUser = userData?.data?.user;
   const user = rawUser?.is_authenticated ? rawUser : null;
 
@@ -107,12 +121,6 @@ export default async function HomeLayout({ children }: { children: React.ReactNo
       style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}
       className={`${geistSans.variable} ${geistMono.variable}`}
     >
-      {/* <AlertBanner
-          type="info"
-          message="Please verify your email address to unlock all features"
-          dismissible={true}
-        /> */}
-
       <NavbarWithCart
         user={
           user
