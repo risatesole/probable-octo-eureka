@@ -1,39 +1,53 @@
 // features/cart/service/helpers/EditProductQuantity.ts
 
 export interface EditQuantityResponse {
-  success: boolean;
+  status: string;
   message?: string;
+  data?: {
+    productvariantid?: number;
+    quantity?: number;
+  };
 }
 
 /**
- * Ejecuta una mutación parcial (PATCH) hacia DRF para actualizar la cantidad.
+ * Actualiza la cantidad de una variante en el carrito.
+ * El backend actual usa PATCH /api/v1/cart/ con productvariantid en el body.
  */
 export async function editProductQuantity(
   variantId: number | string,
   quantity: number
 ): Promise<EditQuantityResponse> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
-  // El trailing slash (/) es imperativo para evitar un redirect 301 del Router de DRF
-  const endpoint = `${baseUrl}/api/v1/cart/update/${variantId}/`;
-
-  const response = await fetch(endpoint, {
+  const response = await fetch('/api/v1/cart/', {
     method: 'PATCH',
+    credentials: 'include',
     headers: {
+      Accept: 'application/json',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ quantity }),
+    body: JSON.stringify({
+      productvariantid: Number(variantId),
+      quantity,
+    }),
   });
 
   if (!response.ok) {
-    const errorDetails = await response.text();
-    console.error(`[Cart] Fallo en PATCH ${endpoint}: HTTP ${response.status}`, errorDetails);
-    throw new Error(`Fallo de actualización: HTTP ${response.status}`);
+    const errorData = await response.json().catch(() => ({
+      message: 'Unknown error',
+    }));
+
+    console.error('[Cart] Fallo actualizando cantidad:', {
+      status: response.status,
+      variantId,
+      quantity,
+      errorData,
+    });
+
+    throw new Error(
+      errorData.message ||
+        JSON.stringify(errorData.errors) ||
+        `Fallo de actualización: HTTP ${response.status}`
+    );
   }
 
-  // Soporte para respuestas vacías (204 No Content), estándar en mutaciones REST
-  if (response.status === 204) {
-    return { success: true };
-  }
-
-  return (await response.json()) as EditQuantityResponse;
+  return response.json() as Promise<EditQuantityResponse>;
 }

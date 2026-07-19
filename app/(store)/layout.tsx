@@ -9,7 +9,6 @@ import { cookies } from 'next/headers';
 import { NavbarWithCart } from '@/components/navbar-with-cart';
 import { Footer } from '@/components/Footer';
 import type { NavbarCartItem } from '@/components/navbar';
-// import { AlertBanner } from '@/components/AlertBanner';
 import { CookieConsentBanner } from '@/components/CookieConsentBanner';
 
 const geistSans = Geist({
@@ -27,7 +26,6 @@ export const metadata: Metadata = {
   description: 'The easy way to buy in the UASD',
 };
 
-// 1. Interfaces estrictas para tipado de respuestas
 interface UserDetails {
   id: number;
   firstname: string;
@@ -47,22 +45,27 @@ interface MeResponse {
 }
 
 interface CartItemRaw {
-  id: number | string;
-  name: string;
-  selling_price: number;
+  id: number | string; // ID del CartItem
+  variant_id: number | string; // ID real de ProductVariant
+  product_name: string;
+  variant_name?: string; // Nombre de la variante
+  product_slug?: string;
+  selling_price: number | string;
   quantity: number;
   thumbnail?: string | null;
+  total_price?: number | string;
 }
 
 interface CartResponse {
+  status?: string;
   data: {
     items: CartItemRaw[];
   };
 }
 
-// 2. Abstracción del cliente fetch para cumplir con el principio DRY
 async function fetchBackend<T>(endpoint: string): Promise<T | null> {
   const backendUrl = process.env.BACKEND_URL;
+
   if (!backendUrl) {
     console.warn('[Fetch] BACKEND_URL no está definido en el entorno.');
     return null;
@@ -70,8 +73,12 @@ async function fetchBackend<T>(endpoint: string): Promise<T | null> {
 
   try {
     const cookieStore = await cookies();
+
     const res = await fetch(`${backendUrl}${endpoint}`, {
-      headers: { Cookie: cookieStore.toString() },
+      headers: {
+        Cookie: cookieStore.toString(),
+        Accept: 'application/json',
+      },
       cache: 'no-store',
     });
 
@@ -79,6 +86,7 @@ async function fetchBackend<T>(endpoint: string): Promise<T | null> {
       if (res.status !== 401 && res.status !== 403) {
         console.error(`[Fetch] Fallo en ${endpoint}: HTTP ${res.status}`);
       }
+
       return null;
     }
 
@@ -90,29 +98,42 @@ async function fetchBackend<T>(endpoint: string): Promise<T | null> {
 }
 
 async function getUserDetails(): Promise<MeResponse | null> {
-  return fetchBackend<MeResponse>('/api/v1/me');
+  return fetchBackend<MeResponse>('/api/v1/me/');
 }
 
 async function getCartItems(): Promise<NavbarCartItem[]> {
   const json = await fetchBackend<CartResponse>('/api/v1/cart/');
-  
+
   if (!json?.data?.items) return [];
 
-  // 3. Mapeo fuertemente tipado (eliminación del tipo "any")
   return json.data.items.map((item) => ({
-    id: String(item.id), // Aseguramos que el ID del componente sea string
-    name: item.name,
-    productId: Number(item.id),
-    price: item.selling_price,
+    // ID interno del item en el carrito, usado por el componente visual
+    id: String(item.id),
+
+    // Aquí va el ID de la variante, no el ID del CartItem
+    productId: Number(item.variant_id),
+
+    // Mostrar producto + variante si existe variant_name
+    name: item.variant_name
+      ? `${item.variant_name}`
+      : item.product_name,
+
+    price: Number(item.selling_price),
     quantity: item.quantity,
     image: item.thumbnail || undefined,
   }));
 }
 
-export default async function HomeLayout({ children }: { children: React.ReactNode }) {
-  // 4. Resolución paralela de promesas para optimizar el Server Component
-  const [userData, cartItems] = await Promise.all([getUserDetails(), getCartItems()]);
-  
+export default async function HomeLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [userData, cartItems] = await Promise.all([
+    getUserDetails(),
+    getCartItems(),
+  ]);
+
   const rawUser = userData?.data?.user;
   const user = rawUser?.is_authenticated ? rawUser : null;
 
@@ -133,7 +154,9 @@ export default async function HomeLayout({ children }: { children: React.ReactNo
         }
         initialCartItems={cartItems}
       />
+
       {children}
+
       <Footer />
       <CookieConsentBanner />
     </div>
