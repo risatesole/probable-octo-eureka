@@ -1,106 +1,57 @@
-import Link from 'next/link';
+// app/(store)/categorias/[categoryname]/page.tsx
 import { notFound } from 'next/navigation';
-import ProductList from './productList';
-import type { Product } from '@/entities/product';
+import ProductList from './productList'; // Asumiendo tu componente existente
 
-// ─── Configuración ─────────────────────────────────────────────
+// ─── Capa de Validación (Data Fetching) ─────────────────────────
 
-// Se unifica el límite de paginación para evitar desincronizaciones entre API y cálculo de offsets.
-const PAGE_SIZE = 30; 
-
-interface MappedProduct {
-  id: string | number;
-  name: string;
-  slug: string;
-  category: string;
-  selling_price: number;
-  thumbnail?: string;
-}
-
-interface PaginatedResponse {
-  data: Product[];
-  total: number;
-}
-
-// ─── Lógica de Datos (Capa de Servicio) ────────────────────────
-
-async function getProducts(categorySlug: string, offset: number): Promise<PaginatedResponse> {
-  // ISR (Incremental Static Regeneration) configurado para balancear frescura y carga en el backend DRF.
-  const response = await fetch(
-    `${process.env.BACKEND_URL}/api/v1/products/?category=${categorySlug}&limit=${PAGE_SIZE}&offset=${offset}`,
-    { next: { revalidate: 3600, tags: ['products', categorySlug] } }
-  );
-
-  if (!response.ok) {
-    if (response.status === 404) return { data: [], total: 0 };
-    throw new Error(`Error obteniendo productos: ${response.statusText}`);
-  }
-
-  const json = await response.json();
-  return {
-    data: json.results || json.data || [],
-    // Se elimina el hardcode (2000) priorizando el metadata 'count' estándar de la paginación de DRF.
-    total: json.count || 0, 
-  };
-}
-
-function mapProductsToView(products: Product[]): MappedProduct[] {
-  return products.map((product) => {
-    const primaryVariant = product.variants?.[0];
-    return {
-      id: primaryVariant?.id ?? product.id,
-      name: product.name,
-      slug: primaryVariant?.slug,
-      category: product.category,
-      selling_price: primaryVariant?.selling_price ?? 0,
-      thumbnail: primaryVariant?.thumbnail,
-    };
+async function getCategory(slug: string) {
+  const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+  // Endpoint dedicado en DRF para buscar una categoría por slug (DetailView)
+  const res = await fetch(`${backendUrl}/api/v1/products/categories/${slug}/`, {
+    next: { revalidate: 3600, tags: [`category-${slug}`] },
   });
+
+  if (!res.ok) {
+    if (res.status === 404) return null;
+    throw new Error(`HTTP Error: ${res.status}`);
+  }
+  return res.json();
 }
 
-// ─── Componentes UI Secundarios ────────────────────────────────
+async function getProductsByCategory(slug: string, offset: number) {
+  const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+  const url = new URL(`${backendUrl}/api/v1/products/`);
+  url.searchParams.set('category', slug);
+  // ... resto de parámetros de paginación (limit, offset)
 
-function Pagination({ currentPage, totalPages }: { currentPage: number; totalPages: number }) {
-  if (totalPages <= 1) return null;
+  const res = await fetch(url.toString(), {
+    next: { revalidate: 3600, tags: ['products', slug] },
+  });
 
-  const start = Math.max(1, currentPage - 2);
-  const end = Math.min(totalPages, currentPage + 2);
-  const pageButtons = Array.from({ length: end - start + 1 }, (_, i) => start + i);
-
-  // Clases basadas en el Design System institucional (sharp edges, colores UASD)
-  const baseClasses = "rounded-none border px-4 py-2 text-sm font-medium transition-colors duration-200";
-  const activeClasses = "bg-[#002d62] text-white border-[#002d62]";
-  const inactiveClasses = "bg-white text-[#43474f] border-[#e2e8f0] hover:border-[#115cb9] hover:text-[#115cb9]";
-
-  return (
-    <nav className="mt-16 flex items-center justify-center gap-2" aria-label="Paginación de catálogo">
-      {currentPage > 1 && (
-        <Link href={`?page=${currentPage - 1}`} className={`${baseClasses} ${inactiveClasses}`}>
-          Anterior
-        </Link>
-      )}
-
-      {pageButtons.map((p) => (
-        <Link
-          key={p}
-          href={`?page=${p}`}
-          className={`${baseClasses} ${p === currentPage ? activeClasses : inactiveClasses}`}
-          aria-current={p === currentPage ? 'page' : undefined}
-        >
-          {p}
-        </Link>
-      ))}
-
-      {currentPage < totalPages && (
-        <Link href={`?page=${currentPage + 1}`} className={`${baseClasses} ${inactiveClasses}`}>
-          Siguiente
-        </Link>
-      )}
-    </nav>
-  );
+  if (!res.ok) return { data: [], total: 0 };
+  const json = await res.json();
+  return { data: json.results || json.data || [], total: json.count || 0 };
 }
 
-// ─── Componente Principal (Server Component) ───────────────────
+// ─── Sincronización Estricta (Build-Time / ISR) ─────────────────
+
+// Esto le dice a Next.js exactamente qué categorías existen en el backend.
+// Pre-renderiza las rutas válidas y optimiza el SEO.
+export async function generateStaticParams() {
+  const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+  const res = await fetch(`${backendUrl}/api/v1/products/categories/`);
+  
+  if (!res.ok) return [];
+  
+  const json = await res.json();
+  const categories = Array.isArray(json.data) ? json.data : Object.values(json.data ?? {});
+  
+  return categories.map((cat: any) => ({
+    categoryname: cat.slug,
+  }));
+}
+
+// ─── Server Component ──────────────────────────────────────────
 
 export default async function CategoryPage({
   params,
@@ -109,34 +60,36 @@ export default async function CategoryPage({
   params: Promise<{ categoryname: string }>;
   searchParams: Promise<{ page?: string }>;
 }) {
-  // Resolución limpia de promesas en Next.js App Router
-  const { categoryname } = await params;
-  const { page: pageParam } = await searchParams;
+  const [{ categoryname }, { page }] = await Promise.all([params, searchParams]);
+  const decodedSlug = decodeURIComponent(categoryname).toLowerCase(); // Normalización estricta
 
-  const currentPage = Math.max(1, parseInt(pageParam || '1', 10));
-  const offset = (currentPage - 1) * PAGE_SIZE;
-
-  const { data: products, total } = await getProducts(categoryname, offset);
-
-  // Fallback 404 si la categoría no existe o está vacía en la página inicial
-  if (!products.length && currentPage === 1) {
-    notFound();
+  // 1. Validar la existencia de la categoría independientemente de los productos
+  const category = await getCategory(decodedSlug);
+  if (!category) {
+    notFound(); // Ahora el 404 SÓLO ocurre si el slug es inválido en la BD
   }
 
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-  const mappedProducts = mapProductsToView(products);
+  // 2. Obtener productos
+  const currentPage = Math.max(1, parseInt(page || '1', 10));
+  const offset = (currentPage - 1) * 30;
+  const { data: products, total } = await getProductsByCategory(decodedSlug, offset);
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-      <header className="mb-8 border-b border-[#e2e8f0] pb-4">
-        <h1 className="font-serif text-3xl font-bold tracking-tight text-[#002d62] capitalize">
-          {categoryname.replace(/-/g, ' ')}
+    <main className="mx-auto max-w-7xl px-4 py-12">
+      <header className="mb-10 border-b pb-6">
+        <h1 className="font-serif text-3xl font-bold capitalize text-[#002d62]">
+          {category.label} {/* Usamos el nombre real de la BD, no el slug modificado */}
         </h1>
       </header>
 
-      <ProductList products={mappedProducts} />
-
-      <Pagination currentPage={currentPage} totalPages={totalPages} />
+      {/* Manejo de Empty State correcto */}
+      {products.length === 0 ? (
+        <div className="flex h-64 items-center justify-center rounded-md border border-dashed border-gray-300 bg-gray-50">
+          <p className="text-gray-500">No hay productos disponibles en esta categoría actualmente.</p>
+        </div>
+      ) : (
+        <ProductList products={products} />
+      )}
     </main>
   );
 }

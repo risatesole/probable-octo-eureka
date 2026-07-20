@@ -1,12 +1,10 @@
 // app/(store)/(home)/productList.tsx
-'use client';
 
-import { useCallback } from 'react';
 import { ProductCard } from '@/components/ProductCard';
 
 export interface MappedProduct {
   id: string | number;
-  variantId: string | number | null;
+  variantId: string | number | null; // Tipado ajustado a la realidad del DTO en page.tsx
   name: string;
   thumbnail: string;
   slug: string;
@@ -19,74 +17,36 @@ interface ProductListProps {
 }
 
 export default function ProductList({ products }: ProductListProps) {
-  const handleAddToCart = useCallback(
-    async (variantId: string | number, quantity: number) => {
-      try {
-        console.log('Enviando al carrito:', {
-          variantId,
-          productvariantid: Number(variantId),
-          quantity,
-        });
-
-        const response = await fetch('/api/v1/cart/', {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify({
-            productvariantid: Number(variantId),
-            quantity,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorDetail = await response.json().catch(() => ({}));
-
-          console.error('Respuesta de error del carrito:', errorDetail);
-
-          throw new Error(
-            `HTTP ${response.status} | DRF: ${JSON.stringify(errorDetail)}`
-          );
-        }
-
-        console.log('Producto agregado al carrito correctamente.');
-      } catch (error) {
-        console.error(
-          '[Cart Mutation Error] Fallo en la comunicación con el endpoint:',
-          error
-        );
-      }
-    },
-    []
-  );
-
   if (!products?.length) return null;
 
-  return (
-    <section className="mx-auto max-w-7xl px-4 py-8 md:px-16 md:py-12">
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-        {products.map((product) => {
-          if (!product.variantId) {
-            console.warn('Producto sin variante válida:', product);
-            return null;
-          }
+  // Filtrado defensivo previo a la renderización
+  const validProducts = products.filter((product) => {
+    if (!product.slug) {
+      console.warn(`[Data Integrity] Variante omitida por falta de slug válido. Producto ID: ${product.id}`);
+      return false;
+    }
+    return true;
+  });
 
-          return (
-            <ProductCard
-              key={product.id}
-              id={product.variantId}
-              slug={product.slug}
-              name={product.name}
-              selling_price={product.selling_price}
-              categoryName={product.category}
-              image={product.thumbnail}
-              onAdd={handleAddToCart}
-            />
-          );
-        })}
-      </div>
-    </section>
+  if (!validProducts.length) return null;
+
+  return (
+    // Se elimina el wrapper restrictivo (max-w-7xl, paddings) para delegar la 
+    // responsabilidad del layout al contenedor <section> padre en page.tsx
+    <div className="grid w-full grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
+      {validProducts.map((product) => (
+        <ProductCard
+          key={`p-${product.id}-v-${product.variantId ?? 'base'}`}
+          id={product.variantId ?? product.id}
+          slug={product.slug}
+          name={product.name}
+          selling_price={product.selling_price}
+          categoryName={product.category}
+          image={product.thumbnail}
+          actionLabel="VER PRODUCTO"
+          actionHref={`/${product.slug}`}
+        />
+      ))}
+    </div>
   );
 }

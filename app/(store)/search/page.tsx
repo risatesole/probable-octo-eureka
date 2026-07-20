@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
 import { ProductCard } from '@/components/ProductCard';
-import CartService from '@/features/cart/service';
-import type { Product } from '@/entities/product';
+import { addProductToCart } from '@/features/cart/service';
+
 type ApiVariant = {
+  id?: number;
   name: string;
   description: string;
   variantnumber: number;
@@ -32,80 +32,63 @@ type ApiProduct = {
   variants: ApiVariant[];
 };
 
-type NormalizedProduct = {
+type SearchProduct = {
   id: number;
+  variantId: number | null;
   name: string;
   selling_price: number;
   categoryName: string;
-  image?: string;
+  image: string;
   slug: string;
 };
 
-function normalizeProduct(p: ApiProduct): Product {
-  const firstVariant = p.variants?.[0];
+function normalizeProduct(product: ApiProduct): SearchProduct {
+  const firstVariant = product.variants?.[0];
 
   return {
-    id: p.id,
-    name: p.name,
-    category: p.category as
-      'electronics' | 'clothing' | 'books' | 'home' | 'toys' | 'food' | 'other',
-    thumbnail: firstVariant?.thumbnail || p.thumbnail || '',
-    slug: p.slug,
-    tags: [],
-    variants: p.variants.map(v => ({
-      id: v.variantnumber,
-      name: v.name,
-      description: v.description,
-      thumbnail: v.thumbnail || '',
-      variantnumber: v.variantnumber,
-      sku: v.sku,
-      slug: v.slug,
-      selling_price: v.selling_price,
-      tax_rate: v.tax_rate,
-      created_at: new Date(),
-      updated_at: new Date(),
-    })),
-    product_type: 'normal',
+    id: product.id,
+    variantId: firstVariant?.id ?? firstVariant?.variantnumber ?? null,
+    name: product.name,
+    selling_price: firstVariant?.selling_price ?? 0,
+    categoryName: product.category,
+    image:
+      firstVariant?.thumbnail ||
+      firstVariant?.image_thumbnail ||
+      product.thumbnail ||
+      '',
+    slug: firstVariant?.slug || product.slug || '',
   };
 }
 
 async function searchProducts(query: string): Promise<ApiProduct[]> {
-  const res = await fetch(`/api/v1/products/?search=${encodeURIComponent(query)}`);
-  if (!res.ok) throw new Error('Search failed');
-  const json = await res.json();
-  return json.data;
+  const response = await fetch(
+    `/api/v1/products/?search=${encodeURIComponent(query)}`,
+    {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Search failed: HTTP ${response.status}`);
+  }
+
+  const json = await response.json();
+
+  return json.data || [];
 }
 
 function EmptyState({ query }: { query: string }) {
   return (
-    <div
-      style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '6rem 2rem',
-        gap: '1rem',
-      }}
-    >
-      <p
-        style={{
-          fontFamily: "'Georgia', serif",
-          fontSize: '1.5rem',
-          fontWeight: 400,
-          color: 'oklch(0.145 0 0)',
-        }}
-      >
-        No results for &ldquo;{query}&rdquo;
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 py-24 text-center">
+      <p className="font-serif text-2xl font-semibold text-[#002d62]">
+        No encontramos resultados para “{query}”
       </p>
-      <p
-        style={{
-          fontSize: '0.875rem',
-          color: 'oklch(0.708 0 0)',
-        }}
-      >
-        Try a different search term or browse the collection.
+
+      <p className="max-w-md text-sm leading-6 text-[#43474f]">
+        Intenta con otro término de búsqueda o explora el catálogo del Economato.
       </p>
     </div>
   );
@@ -121,104 +104,81 @@ function SearchContent() {
 
   useEffect(() => {
     if (!q) {
+      setRawProducts([]);
       setLoading(false);
       return;
     }
+
     setLoading(true);
     setError(false);
 
     searchProducts(q)
-      .then(data => {
+      .then((data) => {
         setRawProducts(data);
         setLoading(false);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error('[Search] Error buscando productos:', err);
         setError(true);
         setLoading(false);
       });
   }, [q]);
 
-  function handleAddToCart(productId: number, quantity: number) {
-    const service = new CartService();
-    service.addProduct(productId, quantity).catch(err => {
+  async function handleAddToCart(variantId: string | number, quantity: number) {
+    try {
+      await addProductToCart(variantId, quantity);
+    } catch (err) {
       console.error('Failed to add product to cart:', err);
-    });
+    }
   }
 
-  const products: Product[] = rawProducts.map(normalizeProduct);
+  const products = rawProducts.map(normalizeProduct);
 
   return (
-    <div style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}>
-      <main
-        style={{
-          maxWidth: 1280,
-          margin: '0 auto',
-          padding: '4rem 2rem 6rem',
-        }}
-      >
-        <div
-          style={{
-            borderBottom: '1px solid oklch(0.922 0 0)',
-            paddingBottom: '2rem',
-            marginBottom: '3rem',
-          }}
-        >
-          <p
-            style={{
-              fontSize: '0.68rem',
-              letterSpacing: '0.12em',
-              textTransform: 'uppercase',
-              color: 'oklch(0.708 0 0)',
-              marginBottom: '0.5rem',
-            }}
-          >
-            Search results
+    <div className="min-h-screen bg-[#f7f9fb]">
+      <main className="mx-auto max-w-7xl px-4 py-12 md:px-16 md:py-16">
+        <header className="mb-12 border-b border-[#e2e8f0] pb-8">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#747781]">
+            Resultados de búsqueda
           </p>
-          <h1
-            style={{
-              fontFamily: "'Georgia', serif",
-              fontWeight: 400,
-              fontSize: '1.65rem',
-            }}
-          >
-            &ldquo;{q}&rdquo;
+
+          <h1 className="font-serif text-3xl font-bold tracking-[-0.02em] text-[#002d62] md:text-4xl">
+            “{q}”
           </h1>
-        </div>
+        </header>
 
         {loading ? (
-          <p style={{ color: 'oklch(0.708 0 0)', fontSize: '0.875rem' }}>Searching…</p>
-        ) : error ? (
-          <p style={{ color: 'oklch(0.556 0 0)', fontSize: '0.875rem' }}>
-            Something went wrong. Please try again.
-          </p>
-        ) : (
-          <div style={{ display: 'flex', gap: '4rem', alignItems: 'flex-start' }}>
-            {products.length === 0 ? (
-              <EmptyState query={q} />
-            ) : (
-              <div
-                style={{
-                  flex: 1,
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-                  gap: '2.5rem 2rem',
-                }}
-              >
-                {products.map(product => (
-                  <ProductCard
-                    key={product.id}
-                    id={product.id}
-                    name={product.name}
-                    selling_price={product.variants[0]?.selling_price || 0}
-                    categoryName={product.category}
-                    image={product.thumbnail}
-                    slug={product.variants[0]?.slug}
-                    onAdd={handleAddToCart}
-                  />
-                ))}
-              </div>
-            )}
+          <div className="border border-[#e2e8f0] bg-white px-6 py-5">
+            <p className="text-sm text-[#43474f]">Buscando productos…</p>
           </div>
+        ) : error ? (
+          <div className="border border-[#ffb4ab] bg-[#ffdad6] px-5 py-4 text-sm text-[#93000a]">
+            No pudimos realizar la búsqueda. Intenta nuevamente.
+          </div>
+        ) : products.length === 0 ? (
+          <EmptyState query={q} />
+        ) : (
+          <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {products.map((product) => {
+              if (!product.variantId) {
+                console.warn('Producto sin variante válida:', product);
+                return null;
+              }
+
+              return (
+                <ProductCard
+                  key={`${product.id}-${product.variantId}`}
+                  id={product.variantId}
+                  name={product.name}
+                  selling_price={product.selling_price}
+                  categoryName={product.categoryName}
+                  image={product.image}
+                  slug={product.slug}
+                  onAdd={handleAddToCart}
+                />
+              );
+            })}
+          </section>
         )}
       </main>
     </div>
@@ -227,7 +187,15 @@ function SearchContent() {
 
 export default function SearchPage() {
   return (
-    <Suspense fallback={<p>Loading...</p>}>
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-[#f7f9fb] px-4 py-12 md:px-16">
+          <div className="mx-auto max-w-7xl border border-[#e2e8f0] bg-white px-6 py-5">
+            <p className="text-sm text-[#43474f]">Cargando búsqueda…</p>
+          </div>
+        </main>
+      }
+    >
       <SearchContent />
     </Suspense>
   );
