@@ -1,396 +1,328 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import type { User } from '@/entities/user';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
+import { useState, useEffect, useCallback, useRef, memo, useMemo } from 'react';
+import Link from 'next/link';
+import { Search, X, Edit2, FileText, UserPlus, ShieldAlert, ChevronLeft, ChevronRight } from 'lucide-react';
 
-// ========== SERVICE ==========
+// ============================================================================
+// CAPA DE DOMINIO Y TIPOS ESTRICTOS
+// ============================================================================
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL;
-const LIMIT = 100;
+type EmployeeStatus = 'active' | 'inactive' | 'pending';
 
-type EmployeeQueryParameters = {
-  sort?: string;
-  limit?: number;
-  offset?: number;
-  search?: string;
-  role?: string;
+type Employee = {
+  id: string;
+  profilepicture: string;
+  firstname: string;
+  lastname: string;
+  email: string;
+  role: string;
+  status: EmployeeStatus;
 };
 
-const DEFAULT_QUERY_PARAMS: EmployeeQueryParameters = {
-  sort: 'id',
-  limit: LIMIT,
-  offset: 0,
-  role: 'employee',
+// ============================================================================
+// CONSTANTES Y UTILIDADES GLOBALES (O(1) Memory Allocation)
+// ============================================================================
+
+const ITEMS_PER_PAGE = 5;
+const SEARCH_DEBOUNCE_DELAY = 400;
+
+const STATUS_UI: Record<EmployeeStatus, { badge: string; dot: string; label: string }> = {
+  active: { badge: 'bg-[#e6f4ea] text-[#137333] border-[#ceead6]', dot: 'bg-[#1e8e3e]', label: 'Activo' },
+  inactive: { badge: 'bg-[#f1f3f4] text-[#5f6368] border-[#e8eaed]', dot: 'bg-[#9aa0a6]', label: 'Inactivo' },
+  pending: { badge: 'bg-[#fef7e0] text-[#b06000] border-[#feefc3]', dot: 'bg-[#f9ab00]', label: 'Pendiente' },
 };
 
-function buildQueryParams(overrides: EmployeeQueryParameters): string {
-  const params = { ...DEFAULT_QUERY_PARAMS, ...overrides };
-  const entries = Object.entries(params)
-    .filter(([, value]) => value !== undefined)
-    .map(([key, value]) => [key, String(value)]);
-  return new URLSearchParams(entries).toString();
-}
+// ============================================================================
+// MOCK DE BASE DE DATOS (Simulación de Entorno sin Conexión)
+// ============================================================================
 
-async function getEmployees(params: EmployeeQueryParameters = {}): Promise<User[]> {
-  const url = `/api/v1/users?${buildQueryParams(params)}`;
+const MOCK_DB: Employee[] = Array.from({ length: 38 }).map((_, i) => ({
+  id: `EMP-${1000 + i}`,
+  profilepicture: `https://i.pravatar.cc/150?u=${i + 50}`, // Offset para avatares distintos
+  firstname: ['Miguel', 'Ana', 'Carlos', 'Wanda', 'Iker', 'Luis', 'María', 'José'][i % 8],
+  lastname: ['Méndez', 'Pérez', 'Gómez', 'Rodríguez', 'López', 'Díaz', 'Martínez', 'García'][i % 8],
+  email: `empleado${i}@uasd.edu.do`,
+  role: ['Administrador', 'Consultor TI', 'Soporte Técnico', 'Desarrollador'][i % 4],
+  status: ['active', 'active', 'inactive', 'pending'][i % 4] as EmployeeStatus, // Mayoría activos
+}));
 
-  try {
-    const res = await fetch(url, {
-      cache: 'no-store',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-    });
+type PaginatedResponse = {
+  data: Employee[];
+  total: number;
+};
 
-    if (!res.ok) {
-      console.error('Response not OK:', res.status, res.statusText);
-      return [];
-    }
+async function mockApiFetch(search: string, page: number, limit: number): Promise<PaginatedResponse> {
+  await new Promise(resolve => setTimeout(resolve, 350)); // Simulación de latencia de red
 
-    const json = await res.json();
-    return json.data ?? [];
-  } catch (error) {
-    console.error('Error fetching employees:', error);
-    return [];
-  }
-}
-
-// ========== HOOKS ==========
-
-function useEmployeesList() {
-  const [employees, setEmployees] = useState<User[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [offset, setOffset] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [totalLoaded, setTotalLoaded] = useState(0);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const fetchEmployees = useCallback(
-    async (search: string = '', resetOffset: boolean = true) => {
-      const currentOffset = resetOffset ? 0 : offset;
-
-      setLoading(resetOffset);
-      if (!resetOffset) setLoadingMore(true);
-      setError(null);
-
-      try {
-        const params = {
-          limit: LIMIT,
-          offset: currentOffset,
-          sort: 'id',
-          role: 'employee',
-          ...(search.trim() && { search: search.trim() }),
-        };
-
-        const newEmployees = await getEmployees(params);
-
-        if (!newEmployees || newEmployees.length === 0) {
-          setHasMore(false);
-          if (resetOffset) setEmployees([]);
-        } else {
-          if (resetOffset) {
-            setEmployees(newEmployees);
-            setOffset(LIMIT);
-            setTotalLoaded(newEmployees.length);
-          } else {
-            setEmployees(prev => [...prev, ...newEmployees]);
-            setOffset(prev => prev + newEmployees.length);
-            setTotalLoaded(prev => prev + newEmployees.length);
-          }
-          setHasMore(newEmployees.length >= LIMIT);
-        }
-      } catch (err) {
-        console.error('Error fetching employees:', err);
-        setError('Failed to load employees');
-      } finally {
-        setLoading(false);
-        setLoadingMore(false);
-        setIsSearching(false);
-      }
-    },
-    [offset]
+  const lowerSearch = search.toLowerCase();
+  const filtered = MOCK_DB.filter(e => 
+    e.firstname.toLowerCase().includes(lowerSearch) || 
+    e.lastname.toLowerCase().includes(lowerSearch) ||
+    e.email.toLowerCase().includes(lowerSearch) ||
+    e.id.toLowerCase().includes(lowerSearch)
   );
 
-  const search = useCallback(
-    (value: string) => {
-      setSearchTerm(value);
-      setIsSearching(true);
-      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-      searchTimeoutRef.current = setTimeout(() => {
-        setOffset(0);
-        setHasMore(true);
-        setTotalLoaded(0);
-        fetchEmployees(value, true);
-      }, 500);
-    },
-    [fetchEmployees]
-  );
-
-  const clearSearch = useCallback(() => {
-    setSearchTerm('');
-    setOffset(0);
-    setHasMore(true);
-    setTotalLoaded(0);
-    fetchEmployees('', true);
-  }, [fetchEmployees]);
-
-  const loadMore = useCallback(async () => {
-    if (loadingMore || !hasMore || isSearching) return;
-    await fetchEmployees(searchTerm, false);
-  }, [loadingMore, hasMore, isSearching, searchTerm, fetchEmployees]);
-
-  const retry = useCallback(() => {
-    fetchEmployees(searchTerm, true);
-  }, [fetchEmployees, searchTerm]);
-
-  useEffect(() => {
-    fetchEmployees('', true);
-    return () => {
-      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    };
-  }, []);
-
+  const startIndex = (page - 1) * limit;
   return {
-    employees,
-    loading,
-    loadingMore,
-    hasMore,
-    error,
-    totalLoaded,
-    searchTerm,
-    isSearching,
-    search,
-    clearSearch,
-    loadMore,
-    retry,
+    data: filtered.slice(startIndex, startIndex + limit),
+    total: filtered.length
   };
 }
 
-// ========== COMPONENTS ==========
+// ============================================================================
+// CUSTOM HOOK: Lógica de Estado y Paginación Numérica
+// ============================================================================
 
-function BouncingDots() {
-  return (
-    <div className="flex space-x-2">
-      <div className="w-4 h-4 bg-blue-500 rounded-full animate-bounce" />
-      <div className="w-4 h-4 bg-blue-500 rounded-full animate-bounce [animation-delay:0.2s]" />
-      <div className="w-4 h-4 bg-blue-500 rounded-full animate-bounce [animation-delay:0.4s]" />
-    </div>
-  );
+function useEmployeesPagination() {
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const latestRequestRef = useRef<number>(0);
+
+  const fetchEmployees = useCallback(async (search: string, page: number) => {
+    const requestId = Date.now();
+    latestRequestRef.current = requestId;
+
+    setIsLoading(true);
+
+    try {
+      const { data, total } = await mockApiFetch(search.trim(), page, ITEMS_PER_PAGE);
+      
+      // Control de concurrencia: Evita sobrescritura por peticiones lentas
+      if (latestRequestRef.current !== requestId) return;
+
+      setEmployees(data);
+      setTotalItems(total);
+    } finally {
+      if (latestRequestRef.current === requestId) {
+        setIsLoading(false);
+      }
+    }
+  }, []);
+
+  const handleSearch = useCallback((value: string) => {
+    setSearchTerm(value);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    
+    searchTimeoutRef.current = setTimeout(() => {
+      setCurrentPage(1); // Reset de índice al buscar
+      fetchEmployees(value, 1);
+    }, SEARCH_DEBOUNCE_DELAY);
+  }, [fetchEmployees]);
+
+  const clearSearch = useCallback(() => {
+    setSearchTerm('');
+    setCurrentPage(1);
+    fetchEmployees('', 1);
+  }, [fetchEmployees]);
+
+  const handlePageChange = useCallback((newPage: number) => {
+    setCurrentPage(newPage);
+    fetchEmployees(searchTerm, newPage);
+  }, [searchTerm, fetchEmployees]);
+
+  useEffect(() => {
+    fetchEmployees('', 1);
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [fetchEmployees]);
+
+  const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
+
+  return { 
+    employees, isLoading, searchTerm, handleSearch, clearSearch, 
+    currentPage, totalPages, totalItems, handlePageChange 
+  };
 }
 
-function SearchBar({
-  value,
-  onChange,
-  onClear,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  onClear: () => void;
-}) {
+// ============================================================================
+// COMPONENTES DE PRESENTACIÓN (Memoizados)
+// ============================================================================
+
+const LoadingDots = memo(() => (
+  <div className="flex space-x-1.5 justify-center py-12">
+    <div className="size-3 bg-[#c4c6d1] rounded-full animate-bounce" />
+    <div className="size-3 bg-[#002d62] rounded-full animate-bounce [animation-delay:0.2s]" />
+    <div className="size-3 bg-[#c4c6d1] rounded-full animate-bounce [animation-delay:0.4s]" />
+  </div>
+));
+LoadingDots.displayName = 'LoadingDots';
+
+const EmployeeRow = memo(({ employee }: { employee: Employee }) => {
+  const statusConfig = STATUS_UI[employee.status];
+
   return (
-    <div className="mb-6">
-      <div className="relative">
-        <input
-          type="text"
-          placeholder="Search employees by name or email..."
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          className="w-full px-4 py-2 pl-10 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+    <tr className="border-b border-[#e0e3e5] bg-white hover:bg-[#f8fafd] transition-colors duration-150">
+      <td className="px-6 py-4 font-mono text-[13px] text-[#43474f] font-semibold">{employee.id}</td>
+      <td className="px-6 py-4">
+        <img 
+          src={employee.profilepicture} 
+          alt={`${employee.firstname} ${employee.lastname}`} 
+          className="size-10 rounded-full object-cover border border-[#e0e3e5] bg-[#f2f4f6]" 
+          loading="lazy" 
         />
-        <svg
-          className="absolute left-3 top-2.5 h-5 w-5 text-gray-400"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-          />
-        </svg>
-        {value && (
-          <button
-            onClick={onClear}
-            className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
-          >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: boolean }) {
-  return status ? (
-    <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
-      Active
-    </span>
-  ) : (
-    <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800">
-      Inactive
-    </span>
-  );
-}
-
-function EmployeeRow({ employee }: { employee: User }) {
-  return (
-    <TableRow>
-      <TableCell>
-        <div className="flex items-center gap-3">
-          <img
-            src={employee.profilepicture}
-            alt={`${employee.firstname} ${employee.lastname}`}
-            width={32}
-            height={32}
-            className="rounded-full object-cover"
-          />
-          {employee.id}
+      </td>
+      <td className="px-6 py-4">
+        <div className="flex flex-col">
+          <span className="text-[14px] font-semibold text-[#191c1e] tracking-tight">{employee.firstname} {employee.lastname}</span>
+          <span className="text-[12px] text-[#747781] mt-0.5">{employee.email}</span>
         </div>
-      </TableCell>
-      <TableCell>{employee.firstname}</TableCell>
-      <TableCell>{employee.lastname}</TableCell>
-      <TableCell>{employee.email}</TableCell>
-      <TableCell>{employee.role}</TableCell>
-      <TableCell>
-        <StatusBadge status={employee.status} />
-      </TableCell>
-      <TableCell>
-        <Button variant="outline" size="sm" asChild>
-          <a
-            href={`/admin/employees/edit/${employee.id}`}
-            className="inline-flex items-center gap-1.5"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-              />
-            </svg>
-            Edit
-          </a>
-        </Button>
-      </TableCell>
-    </TableRow>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap">
+        <span className="text-[13px] font-medium text-[#43474f] bg-[#f2f4f6] px-2.5 py-1 rounded-md border border-[#e0e3e5]">
+          {employee.role}
+        </span>
+      </td>
+      <td className="px-6 py-4">
+        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${statusConfig.badge}`}>
+          <span className={`size-1.5 rounded-full ${statusConfig.dot}`} aria-hidden="true" />
+          <span className="text-[11px] font-bold uppercase tracking-wider">{statusConfig.label}</span>
+        </div>
+      </td>
+      <td className="px-6 py-4 text-right">
+        <Link 
+          href={`/admin/employees/edit/${employee.id}`}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#c4c6d1] rounded-md text-[12px] font-semibold text-[#43474f] hover:bg-[#f2f4f6] transition-colors focus:outline-none focus:ring-2 focus:ring-[#002d62]"
+        >
+          <Edit2 className="size-3.5" /> Editar
+        </Link>
+      </td>
+    </tr>
   );
-}
+});
+EmployeeRow.displayName = 'EmployeeRow';
 
-// ========== MAIN PAGE ==========
+// ============================================================================
+// COMPONENTE PRINCIPAL (PAGE)
+// ============================================================================
 
 export default function EmployeesPage() {
-  const {
-    employees,
-    loading,
-    loadingMore,
-    hasMore,
-    error,
-    totalLoaded,
-    searchTerm,
-    isSearching,
-    search,
-    clearSearch,
-    loadMore,
-    retry,
-  } = useEmployeesList();
+  const { 
+    employees, isLoading, searchTerm, handleSearch, clearSearch, 
+    currentPage, totalPages, totalItems, handlePageChange 
+  } = useEmployeesPagination();
+
+  // Memoización para evitar recalcular el arreglo de botones en re-renders irrelevantes
+  const paginationRange = useMemo(() => {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }, [totalPages]);
 
   return (
-    <div className="container mx-auto px-4 py-10">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Employees</h1>
-      </div>
-
-      <SearchBar value={searchTerm} onChange={search} onClear={clearSearch} />
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-          <p className="text-red-700">{error}</p>
-          <button
-            onClick={retry}
-            className="mt-2 bg-red-100 text-red-700 px-4 py-2 rounded hover:bg-red-200"
-          >
-            Retry
+    <div className="flex flex-col h-full bg-[#f7f9fb]">
+      
+      <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-[#e0e3e5]">
+        <div>
+          <h1 className="text-2xl font-serif font-bold text-[#00193c] tracking-tight">Directorio de Empleados</h1>
+          <p className="text-[13px] font-sans text-[#747781] mt-1">Gestión administrativa de personal y asignación de roles.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button className="inline-flex items-center gap-2 px-4 py-2 bg-[#002d62] rounded-md text-[13px] font-semibold text-white hover:bg-[#00193c] transition-colors focus:outline-none focus:ring-2 focus:ring-[#002d62] focus:ring-offset-2">
+            <UserPlus className="size-4" /> Nuevo Empleado
           </button>
         </div>
-      )}
+      </header>
 
-      {loading ? (
-        <div className="flex justify-center items-center py-16">
-          <BouncingDots />
+      <section className="px-8 py-4 bg-white border-b border-[#e0e3e5]">
+        <div className="relative w-full max-w-md">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-[#747781] pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Buscar por ID, nombre o correo..."
+            value={searchTerm}
+            onChange={(e) => handleSearch(e.target.value)}
+            className="w-full pl-10 pr-10 py-2.5 bg-[#f7f9fb] border border-[#c4c6d1] rounded-md text-[13px] font-medium text-[#191c1e] placeholder:text-[#747781] transition-all focus:outline-none focus:border-[#002d62] focus:ring-1 focus:ring-[#002d62] focus:bg-white"
+          />
+          {searchTerm && (
+            <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#c4c6d1] hover:text-[#747781] transition-colors focus:outline-none">
+              <X className="size-4" />
+            </button>
+          )}
         </div>
-      ) : employees.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-xl shadow-sm">
-          <div className="text-6xl mb-4">👤</div>
-          <p className="text-gray-500 text-lg">
-            {searchTerm ? 'No employees found matching your search' : 'No employees found'}
-          </p>
-        </div>
-      ) : (
-        <>
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Id</TableHead>
-                  <TableHead>First Name</TableHead>
-                  <TableHead>Last Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {employees.map(employee => (
-                  <EmployeeRow key={employee.id} employee={employee} />
-                ))}
-              </TableBody>
-            </Table>
+      </section>
+
+      <main className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar bg-white">
+        {isLoading ? (
+          <LoadingDots />
+        ) : employees.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 text-[#747781]">
+            <ShieldAlert className="size-12 mb-4 text-[#c4c6d1]" />
+            <p className="text-[14px] font-semibold text-[#191c1e]">
+              {searchTerm ? 'No se encontraron empleados coincidentes' : 'El directorio está vacío'}
+            </p>
+          </div>
+        ) : (
+          <table className="w-full text-left border-collapse min-w-[900px]">
+            <thead className="bg-[#f8fafd] sticky top-0 z-10 shadow-[0_1px_0_#e0e3e5]">
+              <tr>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">ID</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Perfil</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Identidad</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Rol Organizacional</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Estado</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider text-right">Acción</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#e0e3e5]">
+              {employees.map(employee => <EmployeeRow key={employee.id} employee={employee} />)}
+            </tbody>
+          </table>
+        )}
+      </main>
+
+      {/* Paginación Numérica Discreta */}
+      {!isLoading && employees.length > 0 && (
+        <footer className="flex items-center justify-between px-8 py-4 bg-white border-t border-[#e0e3e5]">
+          <div className="text-[13px] font-medium text-[#747781]">
+            Mostrando <span className="font-bold text-[#191c1e]">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> a{' '}
+            <span className="font-bold text-[#191c1e]">
+              {Math.min(currentPage * ITEMS_PER_PAGE, totalItems)}
+            </span>{' '}
+            de <span className="font-bold text-[#191c1e]">{totalItems}</span> registros
           </div>
 
-          <div className="mt-8 text-center">
-            {loadingMore ? (
-              <div className="flex justify-center items-center py-4">
-                <BouncingDots />
-              </div>
-            ) : hasMore ? (
-              <button
-                onClick={loadMore}
-                disabled={loadingMore || isSearching}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-3 px-8 rounded-lg transition-colors"
-              >
-                Load More Employees
-              </button>
-            ) : (
-              <p className="text-gray-400 text-sm">
-                ✨ Showing all {totalLoaded} employees
-                {searchTerm && ` matching "${searchTerm}"`}
-              </p>
-            )}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+              disabled={currentPage === 1}
+              className="inline-flex items-center justify-center size-8 rounded-md border border-[#c4c6d1] text-[#43474f] hover:bg-[#f2f4f6] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+              aria-label="Página anterior"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            
+            <div className="flex items-center gap-1 mx-2">
+              {paginationRange.map(page => (
+                <button
+                  key={page}
+                  onClick={() => handlePageChange(page)}
+                  className={`inline-flex items-center justify-center size-8 rounded-md text-[13px] font-semibold transition-all ${
+                    currentPage === page 
+                      ? 'bg-[#002d62] text-white border border-[#002d62] shadow-sm' 
+                      : 'text-[#43474f] hover:bg-[#f2f4f6] border border-transparent hover:border-[#c4c6d1]'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage === totalPages}
+              className="inline-flex items-center justify-center size-8 rounded-md border border-[#c4c6d1] text-[#43474f] hover:bg-[#f2f4f6] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+              aria-label="Página siguiente"
+            >
+              <ChevronRight className="size-4" />
+            </button>
           </div>
-        </>
+        </footer>
       )}
     </div>
   );

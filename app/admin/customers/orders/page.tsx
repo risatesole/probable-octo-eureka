@@ -1,556 +1,352 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Clock, CheckCircle2, Undo2, Search, X, Eye, FileText } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef, memo, useMemo } from 'react';
+import Link from 'next/link';
+import { Clock, CheckCircle2, Undo2, Search, X, Eye, FileText, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 
-// ========== TYPES ==========
+// ============================================================================
+// CAPA DE DOMINIO Y TIPOS ESTRICTOS
+// ============================================================================
+
+type OrderStatus = 'fullfilled' | 'pending' | 'returned';
 
 type Order = {
-  id: string | number;
+  id: string;
   profilepicture: string;
   firstname: string;
   lastname: string;
   email: string;
   created_at: string;
   total: number;
-  status: 'fullfilled' | 'pending' | 'returned';
-  pickup_time: string;
+  status: OrderStatus;
+  pickup_time: string | null;
 };
 
-// ========== CONSTANTS ==========
+// ============================================================================
+// CONSTANTES Y UTILIDADES GLOBALES O(1)
+// ============================================================================
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL;
-const LIMIT = 100;
-const SEARCH_DEBOUNCE_DELAY = 500;
+const ITEMS_PER_PAGE = 5;
+const SEARCH_DEBOUNCE_DELAY = 400;
 
-// ========== API SERVICE ==========
+const dateFormatter = new Intl.DateTimeFormat('es-DO', {
+  year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+});
 
-type OrderQueryParams = {
-  sort?: string;
-  limit?: number;
-  offset?: number;
-  search?: string;
-};
-
-const DEFAULT_QUERY_PARAMS: OrderQueryParams = {
-  sort: 'pickup_time',
-  limit: LIMIT,
-  offset: 0,
-};
-
-/**
- * Builds URL query string from parameters
- */
-function buildQueryString(params: OrderQueryParams): string {
-  const mergedParams = { ...DEFAULT_QUERY_PARAMS, ...params };
-
-  const queryEntries = Object.entries(mergedParams)
-    .filter(([, value]) => value !== undefined)
-    .map(([key, value]) => [key, String(value)]);
-
-  return new URLSearchParams(queryEntries).toString();
-}
-
-/**
- * Fetches orders from the backend API
- */
-async function fetchOrdersFromApi(params: OrderQueryParams = {}): Promise<Order[]> {
-  if (!BACKEND_URL) {
-    console.error('NEXT_PUBLIC_API_URL is not set');
-    return [];
-  }
-
-  const queryString = buildQueryString(params);
-  const url = `/api/v1/admin/orders?${queryString}`;
-
-  try {
-    const response = await fetch(url, {
-      cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    if (!response.ok) {
-      console.error('API Error:', response.status, response.statusText);
-      return [];
-    }
-
-    const json = await response.json();
-    return json.data ?? [];
-  } catch (error) {
-    console.error('Error fetching orders:', error);
-    return [];
-  }
-}
-
-// ========== CUSTOM HOOKS ==========
-
-/**
- * Manages orders state, pagination, and search functionality
- */
-function useOrdersList() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [offset, setOffset] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [totalLoaded, setTotalLoaded] = useState(0);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  /**
-   * Fetches orders with current search and pagination state
-   */
-  const fetchOrders = useCallback(
-    async (search: string = '', shouldResetOffset: boolean = true) => {
-      const currentOffset = shouldResetOffset ? 0 : offset;
-
-      setIsLoading(shouldResetOffset);
-      if (!shouldResetOffset) setIsLoadingMore(true);
-      setError(null);
-
-      try {
-        const params: OrderQueryParams = {
-          limit: LIMIT,
-          offset: currentOffset,
-          sort: 'id',
-        };
-
-        if (search.trim()) {
-          params.search = search.trim();
-        }
-
-        const newOrders = await fetchOrdersFromApi(params);
-
-        if (!newOrders || newOrders.length === 0) {
-          setHasMore(false);
-          if (shouldResetOffset) setOrders([]);
-        } else {
-          if (shouldResetOffset) {
-            setOrders(newOrders);
-            setOffset(LIMIT);
-            setTotalLoaded(newOrders.length);
-          } else {
-            setOrders(prevOrders => [...prevOrders, ...newOrders]);
-            setOffset(prevOffset => prevOffset + newOrders.length);
-            setTotalLoaded(prevTotal => prevTotal + newOrders.length);
-          }
-          setHasMore(newOrders.length >= LIMIT);
-        }
-      } catch (err) {
-        console.error('Error fetching orders:', err);
-        setError('Failed to load orders');
-      } finally {
-        setIsLoading(false);
-        setIsLoadingMore(false);
-        setIsSearching(false);
-      }
-    },
-    [offset]
-  );
-
-  /**
-   * Handles search input with debouncing
-   */
-  const handleSearch = useCallback(
-    (value: string) => {
-      setSearchTerm(value);
-      setIsSearching(true);
-
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-
-      searchTimeoutRef.current = setTimeout(() => {
-        setOffset(0);
-        setHasMore(true);
-        setTotalLoaded(0);
-        fetchOrders(value, true);
-      }, SEARCH_DEBOUNCE_DELAY);
-    },
-    [fetchOrders]
-  );
-
-  /**
-   * Clears search and resets to initial state
-   */
-  const clearSearch = useCallback(() => {
-    setSearchTerm('');
-    setOffset(0);
-    setHasMore(true);
-    setTotalLoaded(0);
-    fetchOrders('', true);
-  }, [fetchOrders]);
-
-  /**
-   * Loads next page of orders
-   */
-  const loadMoreOrders = useCallback(async () => {
-    if (isLoadingMore || !hasMore || isSearching) return;
-    await fetchOrders(searchTerm, false);
-  }, [isLoadingMore, hasMore, isSearching, searchTerm, fetchOrders]);
-
-  /**
-   * Retries failed request
-   */
-  const retryFetch = useCallback(() => {
-    fetchOrders(searchTerm, true);
-  }, [fetchOrders, searchTerm]);
-
-  // Initial load
-  useEffect(() => {
-    fetchOrders('', true);
-    return () => {
-      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    };
-  }, []);
-
-  return {
-    orders,
-    isLoading,
-    isLoadingMore,
-    hasMore,
-    error,
-    totalLoaded,
-    searchTerm,
-    isSearching,
-    handleSearch,
-    clearSearch,
-    loadMoreOrders,
-    retryFetch,
-  };
-}
-
-// ========== UI COMPONENTS ==========
-
-/**
- * Animated loading dots
- */
-function LoadingDots() {
-  return (
-    <div className="flex space-x-2">
-      <div className="w-4 h-4 bg-blue-500 rounded-full animate-bounce" />
-      <div className="w-4 h-4 bg-blue-500 rounded-full animate-bounce [animation-delay:0.2s]" />
-      <div className="w-4 h-4 bg-blue-500 rounded-full animate-bounce [animation-delay:0.4s]" />
-    </div>
-  );
-}
-
-/**
- * Search input with clear button
- */
-function SearchBar({
-  value,
-  onChange,
-  onClear,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  onClear: () => void;
-}) {
-  return (
-    <div className="mb-6">
-      <div className="relative">
-        <input
-          type="text"
-          placeholder="Search orders by customer name..."
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          className="w-full px-4 py-2 pl-10 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
-
-        {/* Search Icon */}
-        <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-
-        {/* Clear Button */}
-        {value && (
-          <button
-            onClick={onClear}
-            className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Error message with retry button
- */
-function ErrorMessage({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-      <p className="text-red-700">{message}</p>
-      <button
-        onClick={onRetry}
-        className="mt-2 bg-red-100 text-red-700 px-4 py-2 rounded hover:bg-red-200 transition-colors"
-      >
-        Retry
-      </button>
-    </div>
-  );
-}
-
-/**
- * Empty state when no orders are found
- */
-function EmptyState({ searchTerm }: { searchTerm: string }) {
-  return (
-    <div className="text-center py-16 bg-white rounded-xl shadow-sm">
-      <FileText className="w-16 h-16 mx-auto text-gray-400 mb-4" />
-      <p className="text-gray-500 text-lg">
-        {searchTerm ? 'No orders found matching your search' : 'No orders found'}
-      </p>
-    </div>
-  );
-}
-
-/**
- * Table header with specified column order
- */
-function OrdersTableHeader() {
-  return (
-    <TableHeader>
-      <TableRow>
-        <TableHead>ID</TableHead>
-        <TableHead>Customer Photo</TableHead>
-        <TableHead>First Name</TableHead>
-        <TableHead>Last Name</TableHead>
-        <TableHead>Email</TableHead>
-        <TableHead>Date of Order</TableHead>
-        <TableHead>Total Paid</TableHead>
-        <TableHead>Status</TableHead>
-        <TableHead>Pickup Time</TableHead>
-        <TableHead>Actions</TableHead>
-      </TableRow>
-    </TableHeader>
-  );
-}
-
-/**
- * Status badge component with shadcn/ui Badge and Lucide icons
- */
-function StatusBadge({ status }: { status: Order['status'] }) {
-  const statusConfig = {
-    pending: {
-      variant: 'warning' as const,
-      label: 'Pending',
-      icon: Clock,
-      className: 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100 border-yellow-200',
-    },
-    fullfilled: {
-      variant: 'success' as const,
-      label: 'Fulfilled',
-      icon: CheckCircle2,
-      className: 'bg-green-100 text-green-800 hover:bg-green-100 border-green-200',
-    },
-    returned: {
-      variant: 'destructive' as const,
-      label: 'Returned',
-      icon: Undo2,
-      className: 'bg-red-100 text-red-800 hover:bg-red-100 border-red-200',
-    },
-  };
-
-  const config = statusConfig[status] || statusConfig.pending;
-  const Icon = config.icon;
-
-  return (
-    <Badge
-      variant="outline"
-      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${config.className}`}
-    >
-      <Icon className="w-3.5 h-3.5" />
-      {config.label}
-    </Badge>
-  );
-}
-
-/**
- * Single order row with all columns in specified order
- */
-function OrderRow({ order }: { order: Order }) {
-  return (
-    <TableRow>
-      <TableCell className="font-mono text-sm">{order.id}</TableCell>
-
-      <TableCell>
-        <img
-          src={order.profilepicture}
-          alt={`${order.firstname} ${order.lastname}`}
-          width={40}
-          height={40}
-          className="rounded-full object-cover"
-        />
-      </TableCell>
-
-      <TableCell className="font-medium">{order.firstname}</TableCell>
-
-      <TableCell className="font-medium">{order.lastname}</TableCell>
-
-      <TableCell className="text-sm">{order.email}</TableCell>
-
-      <TableCell>{formatDate(order.created_at)}</TableCell>
-
-      <TableCell className="font-semibold">{formatCurrency(order.total)}</TableCell>
-
-      <TableCell>
-        <StatusBadge status={order.status} />
-      </TableCell>
-
-      <TableCell>{order.pickup_time ? formatDate(order.pickup_time) : '—'}</TableCell>
-
-      <TableCell>
-        <Button variant="outline" size="sm" asChild>
-          <a
-            href={`/admin/customers/orders/${order.id}`}
-            className="inline-flex items-center gap-1.5"
-          >
-            <Eye className="w-3.5 h-3.5" />
-            Info
-          </a>
-        </Button>
-      </TableCell>
-    </TableRow>
-  );
-}
-
-/**
- * Load more button or completion message
- */
-function LoadMoreSection({
-  hasMore,
-  isLoadingMore,
-  isSearching,
-  totalLoaded,
-  searchTerm,
-  onLoadMore,
-}: {
-  hasMore: boolean;
-  isLoadingMore: boolean;
-  isSearching: boolean;
-  totalLoaded: number;
-  searchTerm: string;
-  onLoadMore: () => void;
-}) {
-  if (isLoadingMore) {
-    return (
-      <div className="flex justify-center items-center py-4">
-        <LoadingDots />
-      </div>
-    );
-  }
-
-  if (hasMore) {
-    return (
-      <button
-        onClick={onLoadMore}
-        disabled={isLoadingMore || isSearching}
-        className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-3 px-8 rounded-lg transition-colors"
-      >
-        Load More Orders
-      </button>
-    );
-  }
-
-  return (
-    <p className="text-gray-400 text-sm">
-      ✨ Showing all {totalLoaded} orders
-      {searchTerm && ` matching "${searchTerm}"`}
-    </p>
-  );
-}
-
-// ========== UTILITY FUNCTIONS ==========
+const currencyFormatter = new Intl.NumberFormat('es-DO', {
+  style: 'currency', currency: 'DOP'
+});
 
 function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  try { return dateFormatter.format(new Date(dateString)); } 
+  catch { return dateString; }
 }
 
 function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-  }).format(amount);
+  return currencyFormatter.format(amount);
 }
 
-// ========== MAIN PAGE ==========
+const STATUS_UI: Record<OrderStatus, { badge: string; dot: string; label: string; icon: React.ElementType }> = {
+  pending: { badge: 'bg-[#fef7e0] text-[#b06000] border-[#feefc3]', dot: 'bg-[#f9ab00]', label: 'Pendiente', icon: Clock },
+  fullfilled: { badge: 'bg-[#e6f4ea] text-[#137333] border-[#ceead6]', dot: 'bg-[#1e8e3e]', label: 'Completada', icon: CheckCircle2 },
+  returned: { badge: 'bg-[#f1f3f4] text-[#5f6368] border-[#e8eaed]', dot: 'bg-[#9aa0a6]', label: 'Devuelta', icon: Undo2 },
+};
 
-export default function OrdersPage() {
-  const {
-    orders,
-    isLoading,
-    isLoadingMore,
-    hasMore,
-    error,
-    totalLoaded,
-    searchTerm,
-    isSearching,
-    handleSearch,
-    clearSearch,
-    loadMoreOrders,
-    retryFetch,
-  } = useOrdersList();
+// ============================================================================
+// MOCK DE BASE DE DATOS (Adaptado para Paginación Clásica)
+// ============================================================================
+
+const MOCK_DB: Order[] = Array.from({ length: 34 }).map((_, i) => ({
+  id: `ORD-${1000 + i}`,
+  profilepicture: `https://i.pravatar.cc/150?u=${i}`,
+  firstname: ['Miguel', 'Ana', 'Carlos', 'Wanda', 'Iker', 'Luis', 'María', 'José'][i % 8],
+  lastname: ['Méndez', 'Pérez', 'Gómez', 'Rodríguez', 'López', 'Díaz', 'Martínez', 'García'][i % 8],
+  email: `usuario${i}@uasd.edu.do`,
+  created_at: new Date(Date.now() - Math.random() * 10000000000).toISOString(),
+  total: Math.floor(Math.random() * 15000) + 500,
+  status: ['fullfilled', 'pending', 'returned'][i % 3] as OrderStatus,
+  pickup_time: i % 4 === 0 ? null : new Date(Date.now() + Math.random() * 86400000).toISOString(),
+}));
+
+type PaginatedResponse = {
+  data: Order[];
+  total: number;
+};
+
+async function mockApiFetch(search: string, page: number, limit: number): Promise<PaginatedResponse> {
+  await new Promise(resolve => setTimeout(resolve, 450)); // Simulación de latencia
+
+  const lowerSearch = search.toLowerCase();
+  const filtered = MOCK_DB.filter(o => 
+    o.firstname.toLowerCase().includes(lowerSearch) || 
+    o.lastname.toLowerCase().includes(lowerSearch) ||
+    o.id.toLowerCase().includes(lowerSearch)
+  );
+
+  const startIndex = (page - 1) * limit;
+  return {
+    data: filtered.slice(startIndex, startIndex + limit),
+    total: filtered.length
+  };
+}
+
+// ============================================================================
+// CUSTOM HOOK: Lógica de Estado y Paginación Discreta
+// ============================================================================
+
+function useOrdersPagination() {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  // Estado de Paginación
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const latestRequestRef = useRef<number>(0);
+
+  const fetchOrders = useCallback(async (search: string, page: number) => {
+    const requestId = Date.now();
+    latestRequestRef.current = requestId;
+
+    setIsLoading(true);
+
+    try {
+      const { data, total } = await mockApiFetch(search.trim(), page, ITEMS_PER_PAGE);
+      
+      // Control de concurrencia: Descartar respuestas obsoletas
+      if (latestRequestRef.current !== requestId) return;
+
+      setOrders(data);
+      setTotalItems(total);
+    } finally {
+      if (latestRequestRef.current === requestId) {
+        setIsLoading(false);
+      }
+    }
+  }, []);
+
+  // Handler de Búsqueda con Debounce
+  const handleSearch = useCallback((value: string) => {
+    setSearchTerm(value);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    
+    searchTimeoutRef.current = setTimeout(() => {
+      setCurrentPage(1); // Resetear a la primera página en cada nueva búsqueda
+      fetchOrders(value, 1);
+    }, SEARCH_DEBOUNCE_DELAY);
+  }, [fetchOrders]);
+
+  const clearSearch = useCallback(() => {
+    setSearchTerm('');
+    setCurrentPage(1);
+    fetchOrders('', 1);
+  }, [fetchOrders]);
+
+  const handlePageChange = useCallback((newPage: number) => {
+    setCurrentPage(newPage);
+    fetchOrders(searchTerm, newPage);
+  }, [searchTerm, fetchOrders]);
+
+  // Montaje inicial
+  useEffect(() => {
+    fetchOrders('', 1);
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [fetchOrders]);
+
+  const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
+
+  return { 
+    orders, isLoading, searchTerm, handleSearch, clearSearch, 
+    currentPage, totalPages, totalItems, handlePageChange 
+  };
+}
+
+// ============================================================================
+// COMPONENTES DE PRESENTACIÓN (Memoizados)
+// ============================================================================
+
+const LoadingDots = memo(() => (
+  <div className="flex space-x-1.5 justify-center py-10">
+    <div className="size-3 bg-[#c4c6d1] rounded-full animate-bounce" />
+    <div className="size-3 bg-[#002d62] rounded-full animate-bounce [animation-delay:0.2s]" />
+    <div className="size-3 bg-[#c4c6d1] rounded-full animate-bounce [animation-delay:0.4s]" />
+  </div>
+));
+LoadingDots.displayName = 'LoadingDots';
+
+const OrderRow = memo(({ order }: { order: Order }) => {
+  const statusConfig = STATUS_UI[order.status];
+  const StatusIcon = statusConfig.icon;
 
   return (
-    <div className="container mx-auto px-4 py-10">
-      <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-6">Orders</h1>
-
-      <SearchBar value={searchTerm} onChange={handleSearch} onClear={clearSearch} />
-
-      {error && <ErrorMessage message={error} onRetry={retryFetch} />}
-
-      {isLoading ? (
-        <div className="flex justify-center items-center py-16">
-          <LoadingDots />
+    <tr className="border-b border-[#e0e3e5] bg-white hover:bg-[#f8fafd] transition-colors duration-150">
+      <td className="px-6 py-4 font-mono text-[13px] text-[#43474f] font-semibold">{order.id}</td>
+      <td className="px-6 py-4">
+        <img 
+          src={order.profilepicture} 
+          alt={`${order.firstname} ${order.lastname}`} 
+          className="size-10 rounded-full object-cover border border-[#e0e3e5] bg-[#f2f4f6]" 
+          loading="lazy" 
+        />
+      </td>
+      <td className="px-6 py-4">
+        <div className="flex flex-col">
+          <span className="text-[14px] font-semibold text-[#191c1e] tracking-tight">{order.firstname} {order.lastname}</span>
+          <span className="text-[12px] text-[#747781] mt-0.5">{order.email}</span>
         </div>
-      ) : orders.length === 0 ? (
-        <EmptyState searchTerm={searchTerm} />
-      ) : (
-        <>
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-            <Table>
-              <OrdersTableHeader />
-              <TableBody>
-                {orders.map(order => (
-                  <OrderRow key={order.id} order={order} />
-                ))}
-              </TableBody>
-            </Table>
+      </td>
+      <td className="px-6 py-4 text-[13px] text-[#43474f] whitespace-nowrap">{formatDate(order.created_at)}</td>
+      <td className="px-6 py-4 text-[14px] font-bold text-[#191c1e]">{formatCurrency(order.total)}</td>
+      <td className="px-6 py-4">
+        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${statusConfig.badge}`}>
+          <StatusIcon className="size-3.5" />
+          <span className="text-[11px] font-bold uppercase tracking-wider">{statusConfig.label}</span>
+        </div>
+      </td>
+      <td className="px-6 py-4 text-[13px] text-[#43474f] whitespace-nowrap">{order.pickup_time ? formatDate(order.pickup_time) : 'Sin asignar'}</td>
+      <td className="px-6 py-4 text-right">
+        <Link 
+          href={`/admin/orders/${order.id}`}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#c4c6d1] rounded-md text-[12px] font-semibold text-[#43474f] hover:bg-[#f2f4f6] transition-colors focus:outline-none focus:ring-2 focus:ring-[#002d62]"
+        >
+          <Eye className="size-3.5" /> Detalle
+        </Link>
+      </td>
+    </tr>
+  );
+});
+OrderRow.displayName = 'OrderRow';
+
+// ============================================================================
+// COMPONENTE PRINCIPAL (PAGE)
+// ============================================================================
+
+export default function OrdersPage() {
+  const { 
+    orders, isLoading, searchTerm, handleSearch, clearSearch, 
+    currentPage, totalPages, totalItems, handlePageChange 
+  } = useOrdersPagination();
+
+  // Memoización del rango de paginación para evitar recálculos en renders no relacionados
+  const paginationRange = useMemo(() => {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }, [totalPages]);
+
+  return (
+    <div className="flex flex-col h-full bg-[#f7f9fb]">
+      
+      <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-[#e0e3e5]">
+        <div>
+          <h1 className="text-2xl font-serif font-bold text-[#00193c] tracking-tight">Directorio de Órdenes</h1>
+          <p className="text-[13px] font-sans text-[#747781] mt-1">Supervisión y trazabilidad del histórico de transacciones operativas.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button className="inline-flex items-center gap-2 px-4 py-2 bg-[#002d62] rounded-md text-[13px] font-semibold text-white hover:bg-[#00193c] transition-colors focus:outline-none focus:ring-2 focus:ring-[#002d62] focus:ring-offset-2">
+            <Plus className="size-4" /> Nueva Orden
+          </button>
+        </div>
+      </header>
+
+      <section className="px-8 py-4 bg-white border-b border-[#e0e3e5]">
+        <div className="relative w-full max-w-md">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-[#747781] pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Buscar por ID, nombre o apellido..."
+            value={searchTerm}
+            onChange={(e) => handleSearch(e.target.value)}
+            className="w-full pl-10 pr-10 py-2.5 bg-[#f7f9fb] border border-[#c4c6d1] rounded-md text-[13px] font-medium text-[#191c1e] placeholder:text-[#747781] transition-all focus:outline-none focus:border-[#002d62] focus:ring-1 focus:ring-[#002d62] focus:bg-white"
+          />
+          {searchTerm && (
+            <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#c4c6d1] hover:text-[#747781] transition-colors focus:outline-none">
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+      </section>
+
+      <main className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar bg-white">
+        {isLoading ? (
+          <LoadingDots />
+        ) : orders.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 text-[#747781]">
+            <FileText className="size-12 mb-4 text-[#c4c6d1]" />
+            <p className="text-[14px] font-semibold text-[#191c1e]">
+              {searchTerm ? 'No se encontraron registros coincidentes' : 'El registro de órdenes está vacío'}
+            </p>
+          </div>
+        ) : (
+          <table className="w-full text-left border-collapse min-w-[1000px]">
+            <thead className="bg-[#f8fafd] sticky top-0 z-10 shadow-[0_1px_0_#e0e3e5]">
+              <tr>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">ID</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Perfil</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Identidad Sujeto</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Emisión</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Facturación</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Estado</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Logística</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider text-right">Acción</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#e0e3e5]">
+              {orders.map(order => <OrderRow key={order.id} order={order} />)}
+            </tbody>
+          </table>
+        )}
+      </main>
+
+      {/* Footer / Paginación Numérica Clásica */}
+      {!isLoading && orders.length > 0 && (
+        <footer className="flex items-center justify-between px-8 py-4 bg-white border-t border-[#e0e3e5]">
+          <div className="text-[13px] font-medium text-[#747781]">
+            Mostrando <span className="font-bold text-[#191c1e]">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> a{' '}
+            <span className="font-bold text-[#191c1e]">
+              {Math.min(currentPage * ITEMS_PER_PAGE, totalItems)}
+            </span>{' '}
+            de <span className="font-bold text-[#191c1e]">{totalItems}</span> registros
           </div>
 
-          <div className="mt-8 text-center">
-            <LoadMoreSection
-              hasMore={hasMore}
-              isLoadingMore={isLoadingMore}
-              isSearching={isSearching}
-              totalLoaded={totalLoaded}
-              searchTerm={searchTerm}
-              onLoadMore={loadMoreOrders}
-            />
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+              disabled={currentPage === 1}
+              className="inline-flex items-center justify-center size-8 rounded-md border border-[#c4c6d1] text-[#43474f] hover:bg-[#f2f4f6] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+              aria-label="Página anterior"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            
+            <div className="flex items-center gap-1 mx-2">
+              {paginationRange.map(page => (
+                <button
+                  key={page}
+                  onClick={() => handlePageChange(page)}
+                  className={`inline-flex items-center justify-center size-8 rounded-md text-[13px] font-semibold transition-all ${
+                    currentPage === page 
+                      ? 'bg-[#002d62] text-white border border-[#002d62] shadow-sm' 
+                      : 'text-[#43474f] hover:bg-[#f2f4f6] border border-transparent hover:border-[#c4c6d1]'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage === totalPages}
+              className="inline-flex items-center justify-center size-8 rounded-md border border-[#c4c6d1] text-[#43474f] hover:bg-[#f2f4f6] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+              aria-label="Página siguiente"
+            >
+              <ChevronRight className="size-4" />
+            </button>
           </div>
-        </>
+        </footer>
       )}
     </div>
   );

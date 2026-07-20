@@ -2,190 +2,207 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Bell, Search, ChevronRight } from 'lucide-react';
 
-function buildCrumbs(pathname: string) {
+// ─── Interfaces y Tipos Estrictos ──────────────────────────────────────────
+
+interface Crumb {
+  label: string;
+  href: string;
+}
+
+type ActiveMenuType = 'search' | 'notifications' | 'user' | null;
+
+// ─── Utilidades Puras ──────────────────────────────────────────────────────
+
+const buildCrumbs = (pathname: string): Crumb[] => {
   const segments = pathname.split('/').filter(Boolean);
-  const crumbs = segments.map((seg, i) => ({
+  return segments.map((seg, i) => ({
     label: seg.charAt(0).toUpperCase() + seg.slice(1),
     href: '/' + segments.slice(0, i + 1).join('/'),
   }));
-  return crumbs;
-}
+};
+
+// ─── Componente Principal ──────────────────────────────────────────────────
 
 export function AdminTopbar() {
   const pathname = usePathname();
-  const crumbs = buildCrumbs(pathname);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
+  const topbarRef = useRef<HTMLElement>(null);
+  
+  const crumbs = useMemo(() => buildCrumbs(pathname), [pathname]);
+  const [activeMenu, setActiveMenu] = useState<ActiveMenuType>(null);
 
-  const handleOutsideClick = () => {
-    setShowNotifications(false);
-    setShowUserMenu(false);
-    setShowSearch(false);
+  useEffect(() => {
+    if (!activeMenu) return;
+
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (topbarRef.current && !topbarRef.current.contains(e.target as Node)) {
+        setActiveMenu(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [activeMenu]);
+
+  const toggleMenu = (menu: ActiveMenuType) => {
+    setActiveMenu((prev) => (prev === menu ? null : menu));
   };
 
   return (
-    <>
-      <header className="sticky top-0 z-40 w-full bg-white/80 dark:bg-neutral-950/80 backdrop-blur-sm border-b border-neutral-100 dark:border-neutral-800">
-        <div className="flex items-center justify-between px-6 h-14">
-          {/* Breadcrumbs */}
-          <nav className="hidden sm:flex items-center gap-x-1.5 text-sm">
-            {crumbs.map((crumb, idx) => {
-              const isLast = idx === crumbs.length - 1;
-              return (
-                <div key={crumb.href} className="flex items-center gap-x-1.5">
-                  {idx > 0 && <ChevronRight className="size-3 text-neutral-400" />}
-                  {isLast ? (
-                    <span className="text-neutral-600 dark:text-neutral-400">{crumb.label}</span>
-                  ) : (
-                    <Link
-                      href={crumb.href}
-                      className="text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors"
-                    >
-                      {crumb.label}
-                    </Link>
-                  )}
-                </div>
-              );
-            })}
-          </nav>
+    <header
+      ref={topbarRef}
+      className="sticky top-0 z-40 w-full bg-[#ffffff] border-b border-[#c4c6d1]" 
+    >
+      <div className="flex items-center justify-between px-8 h-20 relative">
+        
+        {/* ─── Breadcrumbs ─── */}
+        <nav className="hidden sm:flex items-center gap-x-2 text-base font-sans" aria-label="Ruta de navegación">
+          {crumbs.map((crumb, idx) => {
+            const isLast = idx === crumbs.length - 1;
+            return (
+              <div key={crumb.href} className="flex items-center gap-x-2">
+                {idx > 0 && <ChevronRight className="size-4 text-[#747781]" aria-hidden="true" />}
+                {isLast ? (
+                  <span className="text-[#191c1e] font-semibold tracking-wide" aria-current="page">
+                    {crumb.label}
+                  </span>
+                ) : (
+                  <Link
+                    href={crumb.href}
+                    className="text-[#43474f] hover:text-[#002d62] transition-colors font-medium tracking-wide"
+                  >
+                    {crumb.label}
+                  </Link>
+                )}
+              </div>
+            );
+          })}
+        </nav>
 
-          <div className="flex-1" />
+        <div className="flex-1" />
 
-          {/* Search */}
-          <div className="hidden md:block">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-neutral-400" />
-              <input
-                type="search"
-                className="w-56 pl-8 pr-3 py-1.5 text-sm rounded-md border border-neutral-200 dark:border-neutral-800 bg-transparent text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:border-neutral-400 dark:focus:border-neutral-600 transition-colors"
-                placeholder="Search..."
-              />
-            </div>
-          </div>
+        {/* ─── Buscador Global (Desktop) ─── */}
+        <div className="hidden md:block relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-5 text-[#747781] pointer-events-none" />
+          <input
+            type="search"
+            className="w-80 pl-12 pr-4 py-2.5 text-base rounded-none border border-[#c4c6d1] bg-transparent text-[#191c1e] placeholder:text-[#747781] focus:outline-none focus:border-[#002d62] focus:border-b-2 transition-all font-sans"
+            placeholder="Buscar recursos..."
+            aria-label="Búsqueda global"
+          />
+        </div>
 
-          {/* Search mobile */}
-          <div className="relative md:hidden">
+        {/* ─── Contenedor de Acciones (Derecha) ─── */}
+        <div className="flex items-center gap-x-4 ml-6">
+          
+          {/* Toggle de Búsqueda (Mobile) */}
+          <div className="md:hidden relative">
             <button
-              onClick={() => setShowSearch(!showSearch)}
-              className="p-2 -m-2 text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
+              onClick={() => toggleMenu('search')}
+              className="p-2 text-[#43474f] hover:text-[#002d62] transition-colors rounded-none hover:bg-[#f2f4f6]"
+              aria-label="Alternar búsqueda"
             >
-              <Search className="size-4" />
+              <Search className="size-6" />
             </button>
-            {showSearch && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowSearch(false)} />
-                <div className="absolute top-full right-0 mt-2 w-72 bg-white dark:bg-neutral-950 rounded-lg shadow-lg border border-neutral-100 dark:border-neutral-800 p-2 z-50">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-neutral-400" />
-                    <input
-                      type="search"
-                      className="w-full pl-8 pr-3 py-2 text-sm rounded-md border border-neutral-200 dark:border-neutral-800 bg-transparent focus:outline-none focus:border-neutral-400"
-                      placeholder="Search..."
-                      autoFocus
-                    />
-                  </div>
+            {activeMenu === 'search' && (
+              <div className="absolute top-full right-0 mt-4 w-80 bg-[#ffffff] rounded-none border border-[#c4c6d1] p-3 z-50">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-5 text-[#747781]" />
+                  <input
+                    type="search"
+                    className="w-full pl-10 pr-3 py-3 text-base rounded-none border border-[#c4c6d1] focus:outline-none focus:border-[#002d62] focus:border-b-2 font-sans"
+                    placeholder="Buscar..."
+                    autoFocus
+                  />
                 </div>
-              </>
+              </div>
             )}
           </div>
 
-          {/* Notifications */}
+          {/* Toggle de Notificaciones */}
           <div className="relative">
             <button
-              onClick={() => {
-                setShowNotifications(!showNotifications);
-                setShowUserMenu(false);
-              }}
-              className="p-2 -m-2 text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
+              onClick={() => toggleMenu('notifications')}
+              className="p-2 text-[#43474f] hover:text-[#002d62] transition-colors rounded-none hover:bg-[#f2f4f6]"
+              aria-label="Alternar notificaciones"
+              aria-expanded={activeMenu === 'notifications'}
             >
-              <Bell className="size-4" />
+              <Bell className="size-6" />
             </button>
 
-            {showNotifications && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
-                <div className="absolute top-full right-0 mt-2 w-72 bg-white dark:bg-neutral-950 rounded-lg shadow-lg border border-neutral-100 dark:border-neutral-800 overflow-hidden z-50">
-                  <div className="px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
-                    <h3 className="text-xs font-medium text-neutral-900 dark:text-neutral-100">
-                      Notifications
-                    </h3>
-                  </div>
-                  <ul className="divide-y divide-neutral-50 dark:divide-neutral-900 max-h-80 overflow-y-auto">
-                    {[
-                      { title: 'New order received', time: '2 min ago' },
-                      { title: 'Server usage at 90%', time: '1 hr ago' },
-                      { title: 'New user registered', time: '3 hrs ago' },
-                    ].map(n => (
-                      <li key={n.title}>
-                        <button className="w-full text-left px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors">
-                          <p className="text-sm text-neutral-700 dark:text-neutral-300">
-                            {n.title}
-                          </p>
-                          <p className="text-xs text-neutral-400 mt-0.5">{n.time}</p>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+            {activeMenu === 'notifications' && (
+              <div className="absolute top-full right-0 mt-4 w-96 bg-[#ffffff] rounded-none border border-[#c4c6d1] z-50 animate-in fade-in slide-in-from-top-2">
+                <div className="px-5 py-4 border-b border-[#e2e8f0] bg-[#f7f9fb]">
+                  <h3 className="font-serif text-base font-bold text-[#00193c] tracking-wide">
+                    NOTIFICACIONES
+                  </h3>
                 </div>
-              </>
+                <ul className="divide-y divide-[#e2e8f0] max-h-[400px] overflow-y-auto">
+                  {[
+                    { id: 1, title: 'Inventario agotado: Química 101', time: 'Hace 2 min' },
+                    { id: 2, title: 'Uso del servidor al 90%', time: 'Hace 1 hr' },
+                    { id: 3, title: 'Nuevo usuario registrado', time: 'Hace 3 hrs' },
+                  ].map((n) => (
+                    <li key={n.id}>
+                      <button className="w-full text-left px-5 py-4 hover:bg-[#f2f4f6] transition-colors outline-none focus:bg-[#f2f4f6]">
+                        <p className="text-base font-sans font-medium text-[#191c1e]">
+                          {n.title}
+                        </p>
+                        <p className="text-sm font-sans text-[#747781] mt-1">{n.time}</p>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
 
-          {/* User */}
+          {/* Toggle de Usuario */}
           <div className="relative">
             <button
-              onClick={() => {
-                setShowUserMenu(!showUserMenu);
-                setShowNotifications(false);
-              }}
-              className="flex items-center gap-x-2 p-1 -m-1 rounded-md hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors"
+              onClick={() => toggleMenu('user')}
+              className="flex items-center outline-none focus:ring-2 focus:ring-[#002d62] focus:ring-offset-2 transition-all rounded-none"
+              aria-label="Alternar menú de usuario"
+              aria-expanded={activeMenu === 'user'}
             >
-              <div className="size-7 rounded-full bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 text-xs font-medium flex items-center justify-center">
+              <div className="size-10 rounded-none bg-[#002d62] text-[#ffffff] font-sans text-sm font-bold flex items-center justify-center border border-[#00193c]">
                 AD
               </div>
             </button>
 
-            {showUserMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-                <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-neutral-950 rounded-lg shadow-lg border border-neutral-100 dark:border-neutral-800 overflow-hidden z-50">
-                  <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800">
-                    <p className="text-xs font-medium text-neutral-900 dark:text-neutral-100">
-                      admin@example.com
-                    </p>
-                  </div>
-                  <div className="p-1">
-                    <Link
-                      href="/admin/profile"
-                      className="block px-3 py-2 rounded-md text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors"
-                    >
-                      Profile
-                    </Link>
-                    <Link
-                      href="/admin/settings/billing"
-                      className="block px-3 py-2 rounded-md text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors"
-                    >
-                      Billing
-                    </Link>
-                    <div className="border-t border-neutral-100 dark:border-neutral-800 my-1" />
-                    <button className="w-full text-left px-3 py-2 rounded-md text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors">
-                      Sign out
-                    </button>
-                  </div>
+            {activeMenu === 'user' && (
+              <div className="absolute top-full right-0 mt-4 w-64 bg-[#ffffff] rounded-none border border-[#c4c6d1] z-50 animate-in fade-in slide-in-from-top-2">
+                <div className="px-5 py-4 border-b border-[#e2e8f0] bg-[#f7f9fb]">
+                  <p className="font-serif text-base font-bold text-[#00193c] truncate">
+                    admin@ejemplo.com
+                  </p>
                 </div>
-              </>
+                <div className="p-0 flex flex-col">
+                  <Link
+                    href="/admin/profile"
+                    className="px-5 py-3 font-sans text-base font-medium text-[#43474f] hover:text-[#002d62] hover:bg-[#f2f4f6] transition-colors"
+                  >
+                    Perfil
+                  </Link>
+                  <Link
+                    href="/admin/settings/billing"
+                    className="px-5 py-3 font-sans text-base font-medium text-[#43474f] hover:text-[#002d62] hover:bg-[#f2f4f6] transition-colors"
+                  >
+                    Facturación
+                  </Link>
+                  <div className="border-t border-[#e2e8f0]" />
+                  <button className="w-full text-left px-5 py-3 font-sans text-base font-semibold text-[#ba1a1a] hover:bg-[#ffdad6] transition-colors outline-none">
+                    Cerrar sesión
+                  </button>
+                </div>
+              </div>
             )}
           </div>
+          
         </div>
-      </header>
-
-      {(showNotifications || showUserMenu || showSearch) && (
-        <div className="fixed inset-0 z-30" onClick={handleOutsideClick} />
-      )}
-    </>
+      </div>
+    </header>
   );
 }

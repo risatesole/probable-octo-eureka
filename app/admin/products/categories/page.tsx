@@ -1,390 +1,339 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-import ProductService from '@/services/products/ProductService';
-import type { Category } from '@/services/products/ProductService';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { useState, useEffect, useCallback, useRef, memo, useMemo } from 'react';
+import Link from 'next/link';
+import { Search, X, Edit2, FolderOpen, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 
-const productService = new ProductService();
+// ============================================================================
+// CAPA DE DOMINIO Y TIPOS ESTRICTOS
+// ============================================================================
 
-// ========== HOOKS ==========
+export type Category = {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  image: string | null;
+  status: boolean;
+  created_at: string;
+};
 
-function useCategoriesList() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+// ============================================================================
+// CONSTANTES Y UTILIDADES GLOBALES O(1)
+// ============================================================================
 
-  const fetchCategories = useCallback(async (search: string = '') => {
-    setLoading(true);
-    setError(null);
+const ITEMS_PER_PAGE = 5;
+const SEARCH_DEBOUNCE_DELAY = 400;
 
-    try {
-      const allCategories = await productService.getCategories();
+// Instancia global para evitar overhead de Garbage Collection en el ciclo de render
+const dateFormatter = new Intl.DateTimeFormat('es-DO', {
+  year: 'numeric', month: 'short', day: 'numeric'
+});
 
-      // Filter categories if search term exists
-      let filteredCategories = allCategories;
-      if (search.trim()) {
-        const searchLower = search.toLowerCase().trim();
-        filteredCategories = allCategories.filter(
-          category =>
-            category.name.toLowerCase().includes(searchLower) ||
-            category.slug.toLowerCase().includes(searchLower) ||
-            (category.description && category.description.toLowerCase().includes(searchLower))
-        );
-      }
+function formatDate(dateString: string): string {
+  try { return dateFormatter.format(new Date(dateString)); } 
+  catch { return dateString; }
+}
 
-      setCategories(filteredCategories);
-    } catch (err) {
-      console.error('Error fetching categories:', err);
-      setError('Failed to load categories');
-    } finally {
-      setLoading(false);
-      setIsSearching(false);
-    }
-  }, []);
+// ============================================================================
+// MOCK DE BASE DE DATOS (Simulación Paginada Server-Side)
+// ============================================================================
 
-  const search = useCallback(
-    (value: string) => {
-      setSearchTerm(value);
-      setIsSearching(true);
+const MOCK_DB: Category[] = [
+  { id: 1, name: 'Libros de Texto', slug: 'libros-texto', description: 'Material bibliográfico oficial y recursos académicos.', image: 'https://picsum.photos/seed/cat1/150/150', status: true, created_at: '2025-01-15T10:00:00Z' },
+  { id: 2, name: 'Uniformes', slug: 'uniformes', description: 'Indumentaria institucional para estudiantes y docentes.', image: 'https://picsum.photos/seed/cat2/150/150', status: true, created_at: '2025-01-16T11:30:00Z' },
+  { id: 3, name: 'Material Gastable', slug: 'material-gastable', description: 'Suministros de oficina y papelería general.', image: 'https://picsum.photos/seed/cat3/150/150', status: true, created_at: '2025-02-01T09:15:00Z' },
+  { id: 4, name: 'Equipos de Laboratorio', slug: 'equipos-laboratorio', description: 'Instrumental científico y de investigación.', image: null, status: true, created_at: '2025-02-10T14:20:00Z' },
+  { id: 5, name: 'Electrónica', slug: 'electronica', description: 'Dispositivos, calculadoras y componentes informáticos.', image: 'https://picsum.photos/seed/cat5/150/150', status: true, created_at: '2025-03-05T08:45:00Z' },
+  { id: 6, name: 'Souvenirs Institucionales', slug: 'souvenirs', description: 'Artículos promocionales y regalos oficiales.', image: 'https://picsum.photos/seed/cat6/150/150', status: true, created_at: '2025-04-12T16:10:00Z' },
+  { id: 7, name: 'Alimentos y Bebidas', slug: 'alimentos-bebidas', description: 'Snacks y bebidas no perecederas.', image: 'https://picsum.photos/seed/cat7/150/150', status: false, created_at: '2025-05-20T10:05:00Z' },
+  { id: 8, name: 'Mobiliario Estudiantil', slug: 'mobiliario', description: 'Sillas, pupitres y tableros de dibujo.', image: null, status: true, created_at: '2025-06-11T13:40:00Z' },
+];
 
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
+type PaginatedResponse = {
+  data: Category[];
+  total: number;
+};
 
-      searchTimeoutRef.current = setTimeout(() => {
-        fetchCategories(value);
-      }, 500);
-    },
-    [fetchCategories]
+async function mockApiFetch(search: string, page: number, limit: number): Promise<PaginatedResponse> {
+  await new Promise(resolve => setTimeout(resolve, 300)); // Latencia inyectada
+
+  const lowerSearch = search.toLowerCase();
+  const filtered = MOCK_DB.filter(c => 
+    c.name.toLowerCase().includes(lowerSearch) || 
+    c.slug.toLowerCase().includes(lowerSearch) ||
+    (c.description && c.description.toLowerCase().includes(lowerSearch))
   );
 
-  const clearSearch = useCallback(() => {
-    setSearchTerm('');
-    fetchCategories('');
-  }, [fetchCategories]);
-
-  const retry = useCallback(() => {
-    fetchCategories(searchTerm);
-  }, [fetchCategories, searchTerm]);
-
-  useEffect(() => {
-    fetchCategories('');
-
-    return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-    };
-  }, [fetchCategories]);
-
+  const startIndex = (page - 1) * limit;
   return {
-    categories,
-    loading,
-    error,
-    searchTerm,
-    isSearching,
-    search,
-    clearSearch,
-    retry,
+    data: filtered.slice(startIndex, startIndex + limit),
+    total: filtered.length
   };
 }
 
-function useCategoryNavigation() {
-  const router = useRouter();
+// ============================================================================
+// CUSTOM HOOK: Gestión de Estado y Paginación
+// ============================================================================
 
-  const goToCreateCategory = useCallback(() => {
-    router.push('/admin/products/categories/create');
-  }, [router]);
+function useCategoriesPagination() {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
 
-  const goToEditCategory = useCallback(
-    (categoryId: number) => {
-      router.push(`/admin/products/categories/edit/${categoryId}`);
-    },
-    [router]
-  );
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const latestRequestRef = useRef<number>(0);
 
-  return { goToCreateCategory, goToEditCategory };
+  const fetchCategories = useCallback(async (search: string, page: number) => {
+    const requestId = Date.now();
+    latestRequestRef.current = requestId;
+
+    setIsLoading(true);
+
+    try {
+      const { data, total } = await mockApiFetch(search.trim(), page, ITEMS_PER_PAGE);
+      
+      // Thread-safety simulado: Descarta promesas resueltas a destiempo
+      if (latestRequestRef.current !== requestId) return;
+
+      setCategories(data);
+      setTotalItems(total);
+    } finally {
+      if (latestRequestRef.current === requestId) {
+        setIsLoading(false);
+      }
+    }
+  }, []);
+
+  const handleSearch = useCallback((value: string) => {
+    setSearchTerm(value);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    
+    searchTimeoutRef.current = setTimeout(() => {
+      setCurrentPage(1);
+      fetchCategories(value, 1);
+    }, SEARCH_DEBOUNCE_DELAY);
+  }, [fetchCategories]);
+
+  const clearSearch = useCallback(() => {
+    setSearchTerm('');
+    setCurrentPage(1);
+    fetchCategories('', 1);
+  }, [fetchCategories]);
+
+  const handlePageChange = useCallback((newPage: number) => {
+    setCurrentPage(newPage);
+    fetchCategories(searchTerm, newPage);
+  }, [searchTerm, fetchCategories]);
+
+  useEffect(() => {
+    fetchCategories('', 1);
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [fetchCategories]);
+
+  const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
+
+  return { 
+    categories, isLoading, searchTerm, handleSearch, clearSearch, 
+    currentPage, totalPages, totalItems, handlePageChange 
+  };
 }
 
-// ========== TYPES ==========
+// ============================================================================
+// COMPONENTES DE PRESENTACIÓN (Memoizados)
+// ============================================================================
 
-type PageHeaderProps = {
-  onAddCategory: () => void;
-};
+const LoadingDots = memo(() => (
+  <div className="flex space-x-1.5 justify-center py-12">
+    <div className="size-3 bg-[#c4c6d1] rounded-full animate-bounce" />
+    <div className="size-3 bg-[#002d62] rounded-full animate-bounce [animation-delay:0.2s]" />
+    <div className="size-3 bg-[#c4c6d1] rounded-full animate-bounce [animation-delay:0.4s]" />
+  </div>
+));
+LoadingDots.displayName = 'LoadingDots';
 
-type SearchBarProps = {
-  value: string;
-  onChange: (value: string) => void;
-  onClear: () => void;
-};
-
-type ErrorBannerProps = {
-  message: string;
-  onRetry: () => void;
-};
-
-type EmptyStateProps = {
-  searchTerm: string;
-};
-
-type StatusBadgeProps = {
-  status: boolean;
-};
-
-type CategoryRowProps = {
-  category: Category;
-  onEdit: (categoryId: number) => void;
-};
-
-type CategoriesTableProps = {
-  categories: Category[];
-  onEdit: (categoryId: number) => void;
-};
-
-// ========== COMPONENTS ==========
-
-function BouncingDots() {
+const CategoryRow = memo(({ category }: { category: Category }) => {
   return (
-    <div className="flex space-x-2">
-      <div className="w-4 h-4 bg-blue-500 rounded-full animate-bounce" />
-      <div className="w-4 h-4 bg-blue-500 rounded-full animate-bounce [animation-delay:0.2s]" />
-      <div className="w-4 h-4 bg-blue-500 rounded-full animate-bounce [animation-delay:0.4s]" />
-    </div>
-  );
-}
-
-function PageHeader({ onAddCategory }: PageHeaderProps) {
-  return (
-    <div className="flex justify-between items-center mb-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Categories</h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">Manage your product categories</p>
-      </div>
-      <button
-        onClick={onAddCategory}
-        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-      >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-        </svg>
-        Add Category
-      </button>
-    </div>
-  );
-}
-
-function SearchBar({ value, onChange, onClear }: SearchBarProps) {
-  return (
-    <div className="mb-6">
-      <div className="relative">
-        <input
-          type="text"
-          placeholder="Search categories by name, slug, or description..."
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          className="w-full px-4 py-2 pl-10 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:border-gray-700 dark:text-white"
-        />
-        <svg
-          className="absolute left-3 top-2.5 h-5 w-5 text-gray-400"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-          />
-        </svg>
-        {value && (
-          <button
-            onClick={onClear}
-            className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-          >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ErrorBanner({ message, onRetry }: ErrorBannerProps) {
-  return (
-    <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 dark:bg-red-900/20 dark:border-red-800">
-      <p className="text-red-700 dark:text-red-400">{message}</p>
-      <button
-        onClick={onRetry}
-        className="mt-2 bg-red-100 text-red-700 px-4 py-2 rounded hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
-      >
-        Retry
-      </button>
-    </div>
-  );
-}
-
-function EmptyState({ searchTerm }: EmptyStateProps) {
-  return (
-    <div className="text-center py-16 bg-white rounded-xl shadow-sm dark:bg-gray-800">
-      <div className="text-6xl mb-4">🏷️</div>
-      <p className="text-gray-500 dark:text-gray-400 text-lg">
-        {searchTerm ? 'No categories found matching your search' : 'No categories found'}
-      </p>
-      {searchTerm ? (
-        <p className="text-gray-400 text-sm mt-2">Try adjusting your search terms</p>
-      ) : (
-        <p className="text-gray-400 text-sm mt-2">Start by adding your first category</p>
-      )}
-    </div>
-  );
-}
-
-function StatusBadge({ status }: StatusBadgeProps) {
-  return status ? (
-    <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-      Active
-    </span>
-  ) : (
-    <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-      Inactive
-    </span>
-  );
-}
-
-function CategoryRow({ category, onEdit }: CategoryRowProps) {
-  return (
-    <TableRow>
-      <TableCell>{category.id}</TableCell>
-      <TableCell>
-        <div className="flex items-center">
-          {category.image && (
-            <div className="flex-shrink-0 h-10 w-10 mr-3">
-              <img
-                className="h-10 w-10 rounded-lg object-cover"
-                src={category.image}
-                alt={category.name}
-                onError={e => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                }}
-              />
-            </div>
-          )}
-          <div>
-            <div className="text-sm font-medium text-gray-900 dark:text-white">{category.name}</div>
-            {category.slug && (
-              <div className="text-xs text-gray-500 dark:text-gray-400">/{category.slug}</div>
+    <tr className="border-b border-[#e0e3e5] bg-white hover:bg-[#f8fafd] transition-colors duration-150">
+      <td className="px-6 py-4 font-mono text-[13px] text-[#43474f] font-semibold">{category.id}</td>
+      <td className="px-6 py-4">
+        <div className="flex items-center gap-3">
+          <div className="size-10 rounded-md border border-[#e0e3e5] bg-[#f2f4f6] flex items-center justify-center overflow-hidden shrink-0">
+            {category.image ? (
+              <img src={category.image} alt={category.name} className="size-full object-cover" loading="lazy" />
+            ) : (
+              <FolderOpen className="size-4 text-[#c4c6d1]" />
             )}
           </div>
+          <div className="flex flex-col">
+            <span className="text-[14px] font-semibold text-[#191c1e] tracking-tight">{category.name}</span>
+            <span className="text-[12px] text-[#747781] mt-0.5 font-mono">/{category.slug}</span>
+          </div>
         </div>
-      </TableCell>
-      <TableCell>
-        {category.description ? (
-          <div className="text-sm text-gray-600 dark:text-gray-300 truncate max-w-xs">
-            {category.description}
-          </div>
-        ) : (
-          <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
-        )}
-      </TableCell>
-      <TableCell>
-        <StatusBadge status={category.status ?? false} />
-      </TableCell>
-      <TableCell>
-        {category.created_at && (
-          <div className="text-sm text-gray-600 dark:text-gray-300">
-            {new Date(category.created_at).toLocaleDateString()}
-          </div>
-        )}
-      </TableCell>
-      <TableCell>
-        <button
-          onClick={() => onEdit(category.id!)}
-          className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 transition-colors text-sm font-medium"
+      </td>
+      <td className="px-6 py-4">
+        <p className="text-[13px] text-[#43474f] truncate max-w-xs">
+          {category.description || '—'}
+        </p>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap">
+        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${
+          category.status ? 'bg-[#e6f4ea] text-[#137333] border-[#ceead6]' : 'bg-[#f1f3f4] text-[#5f6368] border-[#e8eaed]'
+        }`}>
+          <span className={`size-1.5 rounded-full ${category.status ? 'bg-[#1e8e3e]' : 'bg-[#9aa0a6]'}`} aria-hidden="true" />
+          <span className="text-[11px] font-bold uppercase tracking-wider">{category.status ? 'Activa' : 'Inactiva'}</span>
+        </div>
+      </td>
+      <td className="px-6 py-4 text-[13px] text-[#43474f] whitespace-nowrap">
+        {formatDate(category.created_at)}
+      </td>
+      <td className="px-6 py-4 text-right">
+        <Link 
+          href={`/admin/products/categories/edit/${category.id}`}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#c4c6d1] rounded-md text-[12px] font-semibold text-[#43474f] hover:bg-[#f2f4f6] transition-colors focus:outline-none focus:ring-2 focus:ring-[#002d62]"
         >
-          Edit
-        </button>
-      </TableCell>
-    </TableRow>
+          <Edit2 className="size-3.5" /> Editar
+        </Link>
+      </td>
+    </tr>
   );
-}
+});
+CategoryRow.displayName = 'CategoryRow';
 
-function CategoriesTable({ categories, onEdit }: CategoriesTableProps) {
-  return (
-    <div className="bg-white rounded-xl shadow-sm overflow-hidden dark:bg-gray-800">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>ID</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Description</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Created</TableHead>
-            <TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {categories.map(category => (
-            <CategoryRow key={category.id} category={category} onEdit={onEdit} />
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-// ========== MAIN PAGE ==========
+// ============================================================================
+// COMPONENTE PRINCIPAL (PAGE)
+// ============================================================================
 
 export default function CategoriesPage() {
-  const { categories, loading, error, searchTerm, isSearching, search, clearSearch, retry } =
-    useCategoriesList();
+  const { 
+    categories, isLoading, searchTerm, handleSearch, clearSearch, 
+    currentPage, totalPages, totalItems, handlePageChange 
+  } = useCategoriesPagination();
 
-  const { goToCreateCategory, goToEditCategory } = useCategoryNavigation();
+  const paginationRange = useMemo(() => {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }, [totalPages]);
 
   return (
-    <div className="container mx-auto px-4 py-0">
-      <PageHeader onAddCategory={goToCreateCategory} />
-
-      <SearchBar value={searchTerm} onChange={search} onClear={clearSearch} />
-
-      {error && <ErrorBanner message={error} onRetry={retry} />}
-
-      {loading ? (
-        <div className="flex justify-center items-center py-16">
-          <BouncingDots />
+    <div className="flex flex-col h-full bg-[#f7f9fb]">
+      
+      {/* Header Institucional */}
+      <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-[#e0e3e5]">
+        <div>
+          <h1 className="text-2xl font-serif font-bold text-[#00193c] tracking-tight">Jerarquía de Categorías</h1>
+          <p className="text-[13px] font-sans text-[#747781] mt-1">Estructuración y segmentación del inventario general.</p>
         </div>
-      ) : categories.length === 0 ? (
-        <EmptyState searchTerm={searchTerm} />
-      ) : (
-        <CategoriesTable categories={categories} onEdit={goToEditCategory} />
-      )}
-
-      {!loading && categories.length > 0 && (
-        <div className="mt-6 text-center">
-          <p className="text-gray-400 text-sm">
-            ✨ Showing {categories.length} categories
-            {searchTerm && ` matching "${searchTerm}"`}
-          </p>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/admin/products/categories/create"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-[#002d62] rounded-md text-[13px] font-semibold text-white hover:bg-[#00193c] transition-colors focus:outline-none focus:ring-2 focus:ring-[#002d62] focus:ring-offset-2"
+          >
+            <Plus className="size-4" /> Nueva Categoría
+          </Link>
         </div>
+      </header>
+
+      {/* Toolbar / Filtros */}
+      <section className="px-8 py-4 bg-white border-b border-[#e0e3e5]">
+        <div className="relative w-full max-w-md">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-[#747781] pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Buscar por nombre, slug o descripción..."
+            value={searchTerm}
+            onChange={(e) => handleSearch(e.target.value)}
+            className="w-full pl-10 pr-10 py-2.5 bg-[#f7f9fb] border border-[#c4c6d1] rounded-md text-[13px] font-medium text-[#191c1e] placeholder:text-[#747781] transition-all focus:outline-none focus:border-[#002d62] focus:ring-1 focus:ring-[#002d62] focus:bg-white"
+          />
+          {searchTerm && (
+            <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#c4c6d1] hover:text-[#747781] transition-colors focus:outline-none">
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+      </section>
+
+      {/* Main Content */}
+      <main className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar bg-white">
+        {isLoading ? (
+          <LoadingDots />
+        ) : categories.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 text-[#747781]">
+            <FolderOpen className="size-12 mb-4 text-[#c4c6d1]" />
+            <p className="text-[14px] font-semibold text-[#191c1e]">
+              {searchTerm ? 'No se encontraron categorías coincidentes' : 'La estructura de categorías está vacía'}
+            </p>
+          </div>
+        ) : (
+          <table className="w-full text-left border-collapse min-w-[800px]">
+            <thead className="bg-[#f8fafd] sticky top-0 z-10 shadow-[0_1px_0_#e0e3e5]">
+              <tr>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider w-20">ID</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Categoría / Slug</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Descripción</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Estado</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Creación</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider text-right">Acción</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#e0e3e5]">
+              {categories.map(category => <CategoryRow key={category.id} category={category} />)}
+            </tbody>
+          </table>
+        )}
+      </main>
+
+      {/* Footer / Paginación Numérica Clásica */}
+      {!isLoading && categories.length > 0 && (
+        <footer className="flex items-center justify-between px-8 py-4 bg-white border-t border-[#e0e3e5]">
+          <div className="text-[13px] font-medium text-[#747781]">
+            Mostrando <span className="font-bold text-[#191c1e]">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> a{' '}
+            <span className="font-bold text-[#191c1e]">
+              {Math.min(currentPage * ITEMS_PER_PAGE, totalItems)}
+            </span>{' '}
+            de <span className="font-bold text-[#191c1e]">{totalItems}</span> registros
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+              disabled={currentPage === 1}
+              className="inline-flex items-center justify-center size-8 rounded-md border border-[#c4c6d1] text-[#43474f] hover:bg-[#f2f4f6] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+              aria-label="Página anterior"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            
+            <div className="flex items-center gap-1 mx-2">
+              {paginationRange.map(page => (
+                <button
+                  key={page}
+                  onClick={() => handlePageChange(page)}
+                  className={`inline-flex items-center justify-center size-8 rounded-md text-[13px] font-semibold transition-all ${
+                    currentPage === page 
+                      ? 'bg-[#002d62] text-white border border-[#002d62] shadow-sm' 
+                      : 'text-[#43474f] hover:bg-[#f2f4f6] border border-transparent hover:border-[#c4c6d1]'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage === totalPages}
+              className="inline-flex items-center justify-center size-8 rounded-md border border-[#c4c6d1] text-[#43474f] hover:bg-[#f2f4f6] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+              aria-label="Página siguiente"
+            >
+              <ChevronRight className="size-4" />
+            </button>
+          </div>
+        </footer>
       )}
     </div>
   );

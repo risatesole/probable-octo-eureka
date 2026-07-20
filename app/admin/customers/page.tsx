@@ -1,7 +1,11 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { Search, MoreVertical, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useState, useMemo, useCallback, useDeferredValue, memo } from 'react';
+import { Search, MoreHorizontal, ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react';
+
+// ============================================================================
+// CAPA DE DOMINIO Y TIPOS
+// ============================================================================
 
 interface User {
   id: string;
@@ -12,274 +16,282 @@ interface User {
   role: 'admin' | 'user' | 'moderator';
 }
 
+const USERS_PER_PAGE = 5;
+
+// Diccionario de estilos con acceso O(1) para evitar recálculos en el render cycle
+const STATUS_UI: Record<User['status'], { badge: string; dot: string; label: string }> = {
+  active: { badge: 'bg-[#e6f4ea] text-[#137333] border-[#ceead6]', dot: 'bg-[#1e8e3e]', label: 'Activo' },
+  inactive: { badge: 'bg-[#f1f3f4] text-[#5f6368] border-[#e8eaed]', dot: 'bg-[#9aa0a6]', label: 'Inactivo' },
+  pending: { badge: 'bg-[#fef7e0] text-[#b06000] border-[#feefc3]', dot: 'bg-[#f9ab00]', label: 'Pendiente' },
+};
+
 const mockUsers: User[] = [
-  {
-    id: '1',
-    name: 'Alice Johnson',
-    email: 'alice.johnson@example.com',
-    status: 'active',
-    lastActive: 'Just now',
-    role: 'admin',
-  },
-  {
-    id: '2',
-    name: 'Bob Smith',
-    email: 'bob.smith@example.com',
-    status: 'active',
-    lastActive: '5 minutes ago',
-    role: 'user',
-  },
-  {
-    id: '3',
-    name: 'Carol Davis',
-    email: 'carol.davis@example.com',
-    status: 'inactive',
-    lastActive: '2 hours ago',
-    role: 'moderator',
-  },
-  {
-    id: '4',
-    name: 'David Wilson',
-    email: 'david.wilson@example.com',
-    status: 'active',
-    lastActive: '1 hour ago',
-    role: 'user',
-  },
-  {
-    id: '5',
-    name: 'Emma Brown',
-    email: 'emma.brown@example.com',
-    status: 'pending',
-    lastActive: 'Never',
-    role: 'user',
-  },
-  {
-    id: '6',
-    name: 'Frank Miller',
-    email: 'frank.miller@example.com',
-    status: 'active',
-    lastActive: '30 minutes ago',
-    role: 'user',
-  },
-  {
-    id: '7',
-    name: 'Grace Lee',
-    email: 'grace.lee@example.com',
-    status: 'active',
-    lastActive: '15 minutes ago',
-    role: 'user',
-  },
-  {
-    id: '8',
-    name: 'Henry Zhang',
-    email: 'henry.zhang@example.com',
-    status: 'active',
-    lastActive: '45 minutes ago',
-    role: 'user',
-  },
+  { id: '1', name: 'Alice Johnson', email: 'alice.johnson@example.com', status: 'active', lastActive: 'Just now', role: 'admin' },
+  { id: '2', name: 'Bob Smith', email: 'bob.smith@example.com', status: 'active', lastActive: '5 minutes ago', role: 'user' },
+  { id: '3', name: 'Carol Davis', email: 'carol.davis@example.com', status: 'inactive', lastActive: '2 hours ago', role: 'moderator' },
+  { id: '4', name: 'David Wilson', email: 'david.wilson@example.com', status: 'active', lastActive: '1 hour ago', role: 'user' },
+  { id: '5', name: 'Emma Brown', email: 'emma.brown@example.com', status: 'pending', lastActive: 'Never', role: 'user' },
+  { id: '6', name: 'Frank Miller', email: 'frank.miller@example.com', status: 'active', lastActive: '30 minutes ago', role: 'user' },
+  { id: '7', name: 'Grace Lee', email: 'grace.lee@example.com', status: 'active', lastActive: '15 minutes ago', role: 'user' },
+  { id: '8', name: 'Henry Zhang', email: 'henry.zhang@example.com', status: 'active', lastActive: '45 minutes ago', role: 'user' },
 ];
 
-const USERS_PER_PAGE = 5;
+// ============================================================================
+// COMPONENTES Puros (Memoizados)
+// ============================================================================
+
+interface UserTableRowProps {
+  user: User;
+  isSelected: boolean;
+  onToggleSelect: (id: string) => void;
+  onAction: (user: User) => void;
+}
+
+const UserTableRow = memo(({ user, isSelected, onToggleSelect, onAction }: UserTableRowProps) => {
+  const statusConfig = STATUS_UI[user.status];
+
+  return (
+    <tr className="group border-b border-[#e0e3e5] bg-white hover:bg-[#f8fafd] transition-colors duration-150 ease-in-out">
+      <td className="px-6 py-4 w-12">
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={() => onToggleSelect(user.id)}
+          className="size-4 cursor-pointer text-[#002d62] rounded-sm border-[#c4c6d1] focus:ring-[#002d62] transition-all"
+        />
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap">
+        <div className="flex flex-col">
+          <span className="text-[14px] font-semibold text-[#191c1e] tracking-tight">{user.name}</span>
+          <span className="text-[12px] text-[#747781] mt-0.5">{user.email}</span>
+        </div>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap">
+        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${statusConfig.badge}`}>
+          <span className={`size-1.5 rounded-full ${statusConfig.dot}`} aria-hidden="true" />
+          <span className="text-[11px] font-bold uppercase tracking-wider">{statusConfig.label}</span>
+        </div>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap">
+        <span className="text-[13px] font-medium text-[#43474f] bg-[#f2f4f6] px-2.5 py-1 rounded-md border border-[#e0e3e5] capitalize">
+          {user.role}
+        </span>
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-[13px] text-[#747781] font-medium">
+        {user.lastActive}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-right">
+        <button
+          onClick={() => onAction(user)}
+          className="inline-flex items-center justify-center size-8 rounded-md text-[#747781] hover:text-[#002d62] hover:bg-[#e8f0fe] border border-transparent hover:border-[#d2e3fc] transition-all focus:outline-none focus:ring-2 focus:ring-[#002d62] focus:ring-offset-1"
+          aria-label={`Opciones para ${user.name}`}
+        >
+          <MoreHorizontal className="size-4" />
+        </button>
+      </td>
+    </tr>
+  );
+});
+UserTableRow.displayName = 'UserTableRow';
+
+// ============================================================================
+// COMPONENTE PRINCIPAL
+// ============================================================================
 
 export default function UserListPage() {
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [searchQueryString, setSearchQueryString] = useState('');
   const [currentPageNumber, setCurrentPageNumber] = useState(1);
 
+  // Optimización de concurrencia: Evita bloqueos en el main thread al teclear
+  const deferredSearchQuery = useDeferredValue(searchQueryString);
+
   const searchMatchingUsers = useMemo(() => {
+    if (!deferredSearchQuery.trim()) return mockUsers;
+    const lowerQuery = deferredSearchQuery.toLowerCase();
+    
     return mockUsers.filter(
-      user =>
-        user.name.toLowerCase().includes(searchQueryString.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchQueryString.toLowerCase())
+      user => user.name.toLowerCase().includes(lowerQuery) || user.email.toLowerCase().includes(lowerQuery)
     );
-  }, [searchQueryString]);
+  }, [deferredSearchQuery]);
 
-  const totalPages = Math.ceil(searchMatchingUsers.length / USERS_PER_PAGE);
-  const startIndexForCurrentPage = (currentPageNumber - 1) * USERS_PER_PAGE;
-  const endIndexForCurrentPage = startIndexForCurrentPage + USERS_PER_PAGE;
-  const usersDisplayedOnCurrentPage = searchMatchingUsers.slice(
-    startIndexForCurrentPage,
-    endIndexForCurrentPage
-  );
+  const totalPages = Math.max(1, Math.ceil(searchMatchingUsers.length / USERS_PER_PAGE));
+  
+  const usersDisplayedOnCurrentPage = useMemo(() => {
+    const startIndex = (currentPageNumber - 1) * USERS_PER_PAGE;
+    return searchMatchingUsers.slice(startIndex, startIndex + USERS_PER_PAGE);
+  }, [searchMatchingUsers, currentPageNumber]);
 
-  const toggleSelectSpecificUser = (userId: string) => {
-    const updatedSelectedUsers = new Set(selectedUserIds);
-    if (updatedSelectedUsers.has(userId)) {
-      updatedSelectedUsers.delete(userId);
-    } else {
-      updatedSelectedUsers.add(userId);
-    }
-    setSelectedUserIds(updatedSelectedUsers);
-  };
+  // Manejo de dependencias estrictas para evitar recreación de funciones
+  const toggleSelectSpecificUser = useCallback((userId: string) => {
+    setSelectedUserIds(prev => {
+      const updated = new Set(prev);
+      updated.has(userId) ? updated.delete(userId) : updated.add(userId);
+      return updated;
+    });
+  }, []);
 
-  const toggleSelectAllDisplayedUsers = () => {
-    if (selectedUserIds.size === usersDisplayedOnCurrentPage.length) {
-      setSelectedUserIds(new Set());
-    } else {
-      const allUserIdsOnCurrentPage = new Set(usersDisplayedOnCurrentPage.map(user => user.id));
-      setSelectedUserIds(allUserIdsOnCurrentPage);
-    }
-  };
+  const isCurrentPageAllSelected = useMemo(() => {
+    return usersDisplayedOnCurrentPage.length > 0 && 
+           usersDisplayedOnCurrentPage.every(user => selectedUserIds.has(user.id));
+  }, [usersDisplayedOnCurrentPage, selectedUserIds]);
 
-  const getStatusIndicatorColor = (statusType: string) => {
-    const statusColorMap: Record<string, string> = {
-      active: 'bg-green-500',
-      inactive: 'bg-gray-400',
-      pending: 'bg-yellow-500',
-    };
-    return statusColorMap[statusType] || 'bg-gray-400';
-  };
+  const toggleSelectAllDisplayedUsers = useCallback(() => {
+    setSelectedUserIds(prev => {
+      const next = new Set(prev);
+      if (isCurrentPageAllSelected) {
+        usersDisplayedOnCurrentPage.forEach(user => next.delete(user.id));
+      } else {
+        usersDisplayedOnCurrentPage.forEach(user => next.add(user.id));
+      }
+      return next;
+    });
+  }, [isCurrentPageAllSelected, usersDisplayedOnCurrentPage]);
 
-  const handleUserActionButtonClick = (clickedUser: User) => {
-    alert(`Actions for ${clickedUser.name} (${clickedUser.email})`);
-  };
+  // Handlers para las acciones persistidas
+  const handleUserActionButtonClick = useCallback((clickedUser: User) => {
+    console.log(`Ejecutando acción contextual para: ${clickedUser.id}`);
+  }, []);
 
-  const goToPreviousPage = () => {
-    if (currentPageNumber > 1) {
-      setCurrentPageNumber(currentPageNumber - 1);
-    }
-  };
+  const handleCreateNewUser = useCallback(() => {
+    // Espacio reservado para invocar un modal o empujar ruta (ej. router.push('/admin/users/new'))
+    console.log('Iniciando flujo de creación de usuario');
+  }, []);
 
-  const goToNextPage = () => {
-    if (currentPageNumber < totalPages) {
-      setCurrentPageNumber(currentPageNumber + 1);
-    }
-  };
+  const handleAdvancedFilters = useCallback(() => {
+    console.log('Desplegando panel de filtros avanzados');
+  }, []);
 
-  const isCurrentPageFirstPage = currentPageNumber === 1;
-  const isCurrentPageLastPage = currentPageNumber === totalPages;
+  const paginationRange = useMemo(() => {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }, [totalPages]);
 
   return (
-    <div className="flex-1 flex flex-col bg-white">
-      <div className="border-b border-gray-200 px-8 py-5">
-        <h1 className="text-xl font-medium text-gray-900">Users</h1>
-      </div>
-
-      <div className="border-b border-gray-200 px-8 py-4 bg-white flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={goToPreviousPage}
-            disabled={isCurrentPageFirstPage}
-            className="p-2 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+    <div className="flex flex-col h-full bg-[#f7f9fb]">
+      <header className="flex items-center justify-between px-8 py-6 bg-white border-b border-[#e0e3e5]">
+        <div>
+          <h1 className="text-2xl font-serif font-bold text-[#00193c] tracking-tight">Directorio de Usuarios</h1>
+          <p className="text-[13px] font-sans text-[#747781] mt-1">Gestione los accesos y roles administrativos del sistema.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={handleCreateNewUser}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-[#002d62] rounded-md text-[13px] font-semibold text-white hover:bg-[#00193c] transition-colors focus:outline-none focus:ring-2 focus:ring-[#002d62] focus:ring-offset-2"
           >
-            <ChevronLeft className="w-4 h-4 text-gray-600" />
-          </button>
-          <button
-            onClick={goToNextPage}
-            disabled={isCurrentPageLastPage}
-            className="p-2 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronRight className="w-4 h-4 text-gray-600" />
+            Nuevo Usuario
           </button>
         </div>
+      </header>
 
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+      <section className="px-8 py-4 bg-white border-b border-[#e0e3e5] flex items-center justify-between gap-4">
+        <div className="relative w-full max-w-md">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-[#747781] pointer-events-none" />
           <input
             type="text"
-            placeholder="Search by name or email"
+            placeholder="Buscar por nombre o credencial..."
             value={searchQueryString}
             onChange={e => {
               setSearchQueryString(e.target.value);
               setCurrentPageNumber(1);
             }}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+            className="w-full pl-10 pr-4 py-2.5 bg-[#f7f9fb] border border-[#c4c6d1] rounded-md text-[13px] font-medium text-[#191c1e] placeholder:text-[#747781] transition-all focus:outline-none focus:border-[#002d62] focus:ring-1 focus:ring-[#002d62] focus:bg-white"
           />
         </div>
-      </div>
+        
+        <button 
+          onClick={handleAdvancedFilters}
+          className="inline-flex items-center gap-2 px-3 py-2.5 border border-[#c4c6d1] rounded-md text-[13px] font-semibold text-[#43474f] hover:bg-[#f2f4f6] transition-colors focus:outline-none focus:ring-2 focus:ring-[#002d62]"
+        >
+          <SlidersHorizontal className="size-4" />
+          Filtros Avanzados
+        </button>
+      </section>
 
-      <div className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar bg-white">
         {usersDisplayedOnCurrentPage.length > 0 ? (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-200 bg-white sticky top-0">
-                <th className="px-8 py-3 text-left">
+          <table className="w-full text-left border-collapse min-w-[800px]">
+            <thead className="bg-[#f8fafd] sticky top-0 z-10 shadow-[0_1px_0_#e0e3e5]">
+              <tr>
+                <th className="px-6 py-3.5 w-12">
                   <input
                     type="checkbox"
-                    checked={
-                      selectedUserIds.size > 0 &&
-                      selectedUserIds.size === usersDisplayedOnCurrentPage.length
-                    }
+                    checked={isCurrentPageAllSelected}
                     onChange={toggleSelectAllDisplayedUsers}
-                    className="w-4 h-4 cursor-pointer"
+                    className="size-4 cursor-pointer text-[#002d62] rounded-sm border-[#c4c6d1] focus:ring-[#002d62]"
                   />
                 </th>
-                <th className="px-8 py-3 text-left text-xs font-medium text-gray-700 tracking-wide">
-                  NAME
-                </th>
-                <th className="px-8 py-3 text-left text-xs font-medium text-gray-700 tracking-wide">
-                  EMAIL
-                </th>
-                <th className="px-8 py-3 text-left text-xs font-medium text-gray-700 tracking-wide">
-                  STATUS
-                </th>
-                <th className="px-8 py-3 text-left text-xs font-medium text-gray-700 tracking-wide">
-                  ROLE
-                </th>
-                <th className="px-8 py-3 text-left text-xs font-medium text-gray-700 tracking-wide">
-                  LAST ACTIVE
-                </th>
-                <th className="px-8 py-3 text-right text-xs font-medium text-gray-700 tracking-wide">
-                  ACTION
-                </th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Identidad</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Estado Operativo</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Nivel de Acceso</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider">Última Sesión</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-[#747781] uppercase tracking-wider text-right">Acciones</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-[#e0e3e5]">
               {usersDisplayedOnCurrentPage.map(user => (
-                <tr
+                <UserTableRow
                   key={user.id}
-                  className="border-b border-gray-200 hover:bg-gray-50 transition-colors"
-                >
-                  <td className="px-8 py-4">
-                    <input
-                      type="checkbox"
-                      checked={selectedUserIds.has(user.id)}
-                      onChange={() => toggleSelectSpecificUser(user.id)}
-                      className="w-4 h-4 cursor-pointer"
-                    />
-                  </td>
-                  <td className="px-8 py-4 text-sm font-medium text-gray-900">{user.name}</td>
-                  <td className="px-8 py-4 text-sm text-gray-600">{user.email}</td>
-                  <td className="px-8 py-4">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`w-2 h-2 rounded-full ${getStatusIndicatorColor(user.status)}`}
-                      />
-                      <span className="text-sm text-gray-700 capitalize">{user.status}</span>
-                    </div>
-                  </td>
-                  <td className="px-8 py-4 text-sm text-gray-600 capitalize">{user.role}</td>
-                  <td className="px-8 py-4 text-sm text-gray-600">{user.lastActive}</td>
-                  <td className="px-8 py-4 text-right">
-                    <button
-                      onClick={() => handleUserActionButtonClick(user)}
-                      className="p-1.5 hover:bg-gray-200 rounded transition-colors"
-                    >
-                      <MoreVertical className="w-4 h-4 text-gray-500" />
-                    </button>
-                  </td>
-                </tr>
+                  user={user}
+                  isSelected={selectedUserIds.has(user.id)}
+                  onToggleSelect={toggleSelectSpecificUser}
+                  onAction={handleUserActionButtonClick}
+                />
               ))}
             </tbody>
           </table>
         ) : (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-500">
-            <p className="text-sm font-medium">No users found</p>
+          <div className="flex flex-col items-center justify-center h-64 text-[#747781]">
+            <Search className="size-10 mb-4 text-[#c4c6d1]" />
+            <p className="text-[14px] font-semibold text-[#191c1e]">No se encontraron registros</p>
+            <p className="text-[13px] mt-1">Ajuste los parámetros de búsqueda e intente nuevamente.</p>
           </div>
         )}
-      </div>
+      </main>
 
-      {usersDisplayedOnCurrentPage.length > 0 && (
-        <div className="border-t border-gray-200 bg-white px-8 py-3 text-xs text-gray-600 flex items-center justify-between">
-          <div>
-            {usersDisplayedOnCurrentPage.length} of {searchMatchingUsers.length} users
-            {selectedUserIds.size > 0 && ` • ${selectedUserIds.size} selected`}
-          </div>
-          <div className="text-gray-500">
-            Page {currentPageNumber} of {totalPages}
-          </div>
+      <footer className="flex items-center justify-between px-8 py-4 bg-white border-t border-[#e0e3e5]">
+        <div className="text-[13px] font-medium text-[#747781]">
+          Mostrando <span className="font-bold text-[#191c1e]">{usersDisplayedOnCurrentPage.length}</span> de <span className="font-bold text-[#191c1e]">{searchMatchingUsers.length}</span> resultados
+          {selectedUserIds.size > 0 && (
+            <span className="ml-2 text-[#002d62] font-semibold">({selectedUserIds.size} seleccionados)</span>
+          )}
         </div>
-      )}
+
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setCurrentPageNumber(prev => Math.max(1, prev - 1))}
+            disabled={currentPageNumber === 1}
+            className="inline-flex items-center justify-center size-8 rounded-md border border-[#c4c6d1] text-[#43474f] hover:bg-[#f2f4f6] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+            aria-label="Página anterior"
+          >
+            <ChevronLeft className="size-4" />
+          </button>
+          
+          <div className="flex items-center gap-1 mx-2">
+            {paginationRange.map(page => (
+              <button
+                key={page}
+                onClick={() => setCurrentPageNumber(page)}
+                className={`inline-flex items-center justify-center size-8 rounded-md text-[13px] font-semibold transition-all ${
+                  currentPageNumber === page 
+                    ? 'bg-[#002d62] text-white border border-[#002d62] shadow-sm' 
+                    : 'text-[#43474f] hover:bg-[#f2f4f6] border border-transparent hover:border-[#c4c6d1]'
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setCurrentPageNumber(prev => Math.min(totalPages, prev + 1))}
+            disabled={currentPageNumber === totalPages}
+            className="inline-flex items-center justify-center size-8 rounded-md border border-[#c4c6d1] text-[#43474f] hover:bg-[#f2f4f6] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+            aria-label="Página siguiente"
+          >
+            <ChevronRight className="size-4" />
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }
