@@ -119,9 +119,11 @@ export default async function CategoryPage({
   const { data: products, total } = await getProducts(categoryname, offset);
 
   // Fallback 404 si la categoría no existe o está vacía en la página inicial
+  /*
   if (!products.length && currentPage === 1) {
     notFound();
   }
+  */
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const mappedProducts = mapProductsToView(products);
