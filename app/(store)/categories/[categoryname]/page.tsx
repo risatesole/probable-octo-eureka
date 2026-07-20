@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { PackageSearch, ArrowLeft } from 'lucide-react';
 import ProductList from './productList';
 import type { Product } from '@/entities/product';
 
@@ -67,10 +68,10 @@ function Pagination({ currentPage, totalPages }: { currentPage: number; totalPag
   const end = Math.min(totalPages, currentPage + 2);
   const pageButtons = Array.from({ length: end - start + 1 }, (_, i) => start + i);
 
-  // Clases basadas en el Design System institucional (sharp edges, colores UASD)
-  const baseClasses = "rounded-none border px-4 py-2 text-sm font-medium transition-colors duration-200";
+  // Clases basadas en el Design System institucional (sharp edges, colores de autoridad)
+  const baseClasses = "rounded-none border px-4 py-2 text-[13px] font-semibold transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[#002d62]";
   const activeClasses = "bg-[#002d62] text-white border-[#002d62]";
-  const inactiveClasses = "bg-white text-[#43474f] border-[#e2e8f0] hover:border-[#115cb9] hover:text-[#115cb9]";
+  const inactiveClasses = "bg-white text-[#43474f] border-[#c4c6d1] hover:bg-[#f2f4f6]";
 
   return (
     <nav className="mt-16 flex items-center justify-center gap-2" aria-label="Paginación de catálogo">
@@ -109,7 +110,7 @@ export default async function CategoryPage({
   params: Promise<{ categoryname: string }>;
   searchParams: Promise<{ page?: string }>;
 }) {
-  // Resolución limpia de promesas en Next.js App Router
+  // Resolución asíncrona de parámetros para Next.js 15+ (App Router)
   const { categoryname } = await params;
   const { page: pageParam } = await searchParams;
 
@@ -118,12 +119,29 @@ export default async function CategoryPage({
 
   const { data: products, total } = await getProducts(categoryname, offset);
 
-  // Fallback 404 si la categoría no existe o está vacía en la página inicial
-  /*
+  // Renderizado optimizado del estado vacío (Empty State)
   if (!products.length && currentPage === 1) {
-    notFound();
+    return (
+      <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+        <div className="flex flex-col items-center justify-center py-24 px-4 text-center bg-white border border-[#e0e3e5] rounded-none shadow-sm min-h-[400px]">
+          <PackageSearch className="size-12 mb-4 text-[#c4c6d1]" strokeWidth={1.5} />
+          <h2 className="text-[15px] font-sans font-bold text-[#191c1e] tracking-tight">
+            Categoría sin inventario
+          </h2>
+          <p className="text-[13px] text-[#747781] mt-1.5 max-w-sm">
+            No se encontraron artículos disponibles bajo la clasificación solicitada o el identificador no existe en el catálogo.
+          </p>
+          <Link
+            href="/categories/"
+            className="mt-6 inline-flex items-center gap-2 px-4 py-2 border border-[#c4c6d1] rounded-none text-[13px] font-semibold text-[#43474f] hover:bg-[#f2f4f6] transition-colors focus:outline-none focus:ring-2 focus:ring-[#002d62]"
+          >
+            <ArrowLeft className="size-4" />
+            Retornar al catálogo central
+          </Link>
+        </div>
+      </main>
+    );
   }
-  */
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const mappedProducts = mapProductsToView(products);
